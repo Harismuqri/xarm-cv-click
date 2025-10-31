@@ -21,7 +21,7 @@
         "workspace_max_x": 300,
         "workspace_min_y": 0,
         "workspace_max_y": 300,
-        "coordinate_offset_x": 0,
-        "coordinate_offset_y": -150
+        "coordinate_offset_x": -208,
+        "coordinate_offset_y": -148
     }
 }
