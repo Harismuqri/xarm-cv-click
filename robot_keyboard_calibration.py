@@ -266,14 +266,14 @@ class RobotAreaCalibrator:
         # Transform to image coordinates
         box_img = cv2.perspectiveTransform(box_real, self.H_inv).reshape(-1, 2).astype(int)
         
-        # Draw boundary
-        cv2.polylines(frame, [box_img], isClosed=True, color=(255, 255, 255), thickness=2)
+        # Draw boundary with thicker, brighter line for better visibility
+        cv2.polylines(frame, [box_img], isClosed=True, color=(0, 255, 0), thickness=3)  # Bright green, thicker
         
-        # Label corners
+        # Label corners with better visibility
         labels = ["TL", "TR", "BR", "BL"]
         for i, (pt, label) in enumerate(zip(box_img, labels)):
             cv2.putText(frame, label, tuple(pt + [5, -5]),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)  # Larger, green, bold
         
         # Draw center point of workspace - LARGE AND VISIBLE
         center_real = np.array([[(self.workspace_max_x + self.workspace_min_x) / 2,
@@ -281,18 +281,21 @@ class RobotAreaCalibrator:
                                 dtype=np.float32).reshape(-1, 1, 2)
         center_img = cv2.perspectiveTransform(center_real, self.H_inv).reshape(-1, 2).astype(int)
         
-        # Draw small center reference marker
+        # Draw center reference marker - visible but not huge
         center_pt = tuple(center_img[0])
 
-        # Small outer circle (cyan)
-        cv2.circle(frame, center_pt, 8, (0, 255, 255), 2)
+        # Outer circle (bright yellow for high visibility)
+        cv2.circle(frame, center_pt, 12, (0, 255, 255), 3)  # Cyan, thicker
 
-        # Small crosshair
-        cv2.drawMarker(frame, center_pt, (0, 255, 255), cv2.MARKER_CROSS, 15, 2)
+        # Inner filled circle for contrast
+        cv2.circle(frame, center_pt, 6, (0, 255, 255), -1)  # Filled cyan
 
-        # Small label
-        cv2.putText(frame, "C", (center_pt[0] + 12, center_pt[1] + 5),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1, cv2.LINE_AA)
+        # Crosshair
+        cv2.drawMarker(frame, center_pt, (255, 255, 255), cv2.MARKER_CROSS, 20, 2)  # White crosshair
+
+        # Label
+        cv2.putText(frame, "CENTER", (center_pt[0] + 18, center_pt[1] - 10),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2, cv2.LINE_AA)
     
     def draw_robot_position(self, frame):
         """Draw current robot position on the frame."""
@@ -333,9 +336,10 @@ class RobotAreaCalibrator:
             self.prev_y = self.current_y
             self.prev_z = self.current_z
         
-        # Draw robot position as a small, simple dot for easy visual tracking
-        cv2.circle(frame, pos_pt, 5, (0, 0, 255), -1)  # Small red filled circle
-        cv2.circle(frame, pos_pt, 6, (255, 255, 255), 1)  # Thin white border for visibility
+        # Draw robot position - visible dot with high contrast
+        cv2.circle(frame, pos_pt, 8, (0, 0, 255), -1)  # Red filled circle (larger)
+        cv2.circle(frame, pos_pt, 10, (255, 255, 255), 2)  # Thick white border
+        cv2.circle(frame, pos_pt, 2, (255, 255, 0), -1)  # Small cyan center dot for precision
         
         # If off-screen, draw arrow pointing to it
         frame_height, frame_width = frame.shape[:2]
@@ -373,12 +377,12 @@ class RobotAreaCalibrator:
                 pos_img = cv2.perspectiveTransform(pos_real, self.H_inv).reshape(-1, 2).astype(int)
                 
                 pos_pt = tuple(pos_img[0])
-                
-                # Draw saved point
-                cv2.circle(frame, pos_pt, 8, color, -1)
-                cv2.circle(frame, pos_pt, 10, (255, 255, 255), 2)
-                cv2.putText(frame, label, (pos_pt[0] + 12, pos_pt[1] - 8),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+                # Draw saved point with better visibility
+                cv2.circle(frame, pos_pt, 10, color, -1)  # Larger filled circle
+                cv2.circle(frame, pos_pt, 12, (255, 255, 255), 3)  # Thick white border
+                cv2.putText(frame, label, (pos_pt[0] + 15, pos_pt[1] - 10),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
     
     def camera_display_thread(self):
         """Thread to continuously display camera feed."""
@@ -402,29 +406,29 @@ class RobotAreaCalibrator:
                 # Draw saved calibration points
                 self.draw_saved_points(display_frame)
                 
-                # Add info overlay
+                # Add info overlay with better visibility
                 info_y = 30
                 cv2.putText(display_frame, "Robot Calibration - Live View", (10, info_y),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
 
                 # Show transformation mode (highlighted)
-                info_y += 30
+                info_y += 35
                 mode_text = f"Transform Mode: {self.transform_mode} (press 'm' to cycle)"
                 cv2.putText(display_frame, mode_text, (10, info_y),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
                 if self.current_x is not None:
                     camera_x, camera_y = self.robot_to_camera_coords(self.current_x, self.current_y)
-                    info_y += 25
+                    info_y += 30
                     cv2.putText(display_frame, f"Robot: ({self.current_x:.1f}, {self.current_y:.1f}) mm",
-                               (10, info_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-                    info_y += 20
+                               (10, info_y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                    info_y += 25
                     cv2.putText(display_frame, f"Camera: ({camera_x:.1f}, {camera_y:.1f}) mm",
-                               (10, info_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                               (10, info_y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
-                info_y += 25
+                info_y += 30
                 cv2.putText(display_frame, f"Step: {self.step_size}mm",
-                           (10, info_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                           (10, info_y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
                 
                 with self.frame_lock:
                     self.current_frame = display_frame
