@@ -333,19 +333,9 @@ class RobotAreaCalibrator:
             self.prev_y = self.current_y
             self.prev_z = self.current_z
         
-        # Draw robot position as a red dot with crosshair
-        cv2.circle(frame, pos_pt, 10, (0, 0, 255), -1)  # Filled red circle
-        cv2.circle(frame, pos_pt, 12, (255, 255, 255), 2)  # White border
-        cv2.drawMarker(frame, pos_pt, (255, 0, 0), cv2.MARKER_CROSS, 25, 2)  # Blue crosshair
-        
-        # Draw label
-        cv2.putText(frame, "ROBOT", (pos_pt[0] + 15, pos_pt[1] - 15),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-        
-        # Draw coordinate info
-        coord_text = f"({camera_x:.1f}, {camera_y:.1f})"
-        cv2.putText(frame, coord_text, (pos_pt[0] + 15, pos_pt[1] + 5),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        # Draw robot position as a small, simple dot for easy visual tracking
+        cv2.circle(frame, pos_pt, 5, (0, 0, 255), -1)  # Small red filled circle
+        cv2.circle(frame, pos_pt, 6, (255, 255, 255), 1)  # Thin white border for visibility
         
         # If off-screen, draw arrow pointing to it
         frame_height, frame_width = frame.shape[:2]
