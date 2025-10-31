@@ -208,6 +208,23 @@ class RobotAreaCalibrator:
         except Exception as e:
             return None
     
+    def robot_to_camera_coords(self, robot_x, robot_y):
+        """
+        Convert robot coordinates to camera/workspace coordinates.
+        Accounts for 90-degree rotation between coordinate systems.
+
+        From diagnostic tests:
+        - Robot X+ → Visual UP → Camera Y+
+        - Robot Y+ → Visual LEFT → Camera X-
+
+        Therefore:
+        - camera_y = robot_x - offset_x
+        - camera_x = -(robot_y - offset_y) = offset_y - robot_y
+        """
+        camera_x = self.offset_y - robot_y
+        camera_y = robot_x - self.offset_x
+        return camera_x, camera_y
+
     def draw_workspace_boundary(self, frame):
         """Draw the workspace boundary on the frame."""
         if self.H_inv is None:
@@ -280,11 +297,9 @@ class RobotAreaCalibrator:
         """Draw current robot position on the frame."""
         if self.H_inv is None or self.current_x is None:
             return
-        
-        # Use SIMPLE offset method (no rotation for visualization)
-        # The movement control handles the rotation, visualization should be simple
-        camera_x = self.current_x - self.offset_x
-        camera_y = self.current_y - self.offset_y
+
+        # Convert robot coordinates to camera coordinates (accounts for 90° rotation)
+        camera_x, camera_y = self.robot_to_camera_coords(self.current_x, self.current_y)
         
         # Check if position changed (threshold of 0.1mm to avoid floating point noise)
         position_changed = False
@@ -357,9 +372,8 @@ class RobotAreaCalibrator:
         for key, (label, color) in point_info.items():
             point = self.calibration_points[key]
             if point is not None:
-                # Use simple offset (no rotation)
-                camera_x = point['robot_x'] - self.offset_x
-                camera_y = point['robot_y'] - self.offset_y
+                # Convert robot coordinates to camera coordinates (accounts for 90° rotation)
+                camera_x, camera_y = self.robot_to_camera_coords(point['robot_x'], point['robot_y'])
                 
                 # Transform to image coordinates
                 pos_real = np.array([[camera_x, camera_y]], dtype=np.float32).reshape(-1, 1, 2)
@@ -401,10 +415,9 @@ class RobotAreaCalibrator:
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
                 
                 if self.current_x is not None:
-                    camera_x = self.current_x - self.offset_x
-                    camera_y = self.current_y - self.offset_y
+                    camera_x, camera_y = self.robot_to_camera_coords(self.current_x, self.current_y)
                     info_y += 30
-                    cv2.putText(display_frame, f"Robot: ({camera_x:.1f}, {camera_y:.1f}) mm", 
+                    cv2.putText(display_frame, f"Camera: ({camera_x:.1f}, {camera_y:.1f}) mm", 
                                (10, info_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
                 
                 info_y += 25
@@ -510,9 +523,8 @@ class RobotAreaCalibrator:
             }
             
             # Convert to camera/workspace coordinates
-            camera_x = self.current_x - self.offset_x
-            camera_y = self.current_y - self.offset_y
-            
+            camera_x, camera_y = self.robot_to_camera_coords(self.current_x, self.current_y)
+
             print(f"\n[SAVED] {point_name.upper().replace('_', ' ')}")
             print(f"  Robot coords: ({self.current_x:.1f}, {self.current_y:.1f}, {self.current_z:.1f})")
             print(f"  Camera coords: ({camera_x:.1f}, {camera_y:.1f})")
@@ -579,10 +591,9 @@ class RobotAreaCalibrator:
         self.update_current_position()
         
         if self.current_x is not None:
-            # Use simple offset (no rotation)
-            camera_x = self.current_x - self.offset_x
-            camera_y = self.current_y - self.offset_y
-            
+            # Convert robot coordinates to camera coordinates (accounts for 90° rotation)
+            camera_x, camera_y = self.robot_to_camera_coords(self.current_x, self.current_y)
+
             print("\n" + "-"*60)
             print("CURRENT POSITION")
             print("-"*60)
@@ -620,8 +631,7 @@ class RobotAreaCalibrator:
             point = self.calibration_points[key]
             if point is not None:
                 any_saved = True
-                camera_x = point['robot_x'] - self.offset_x
-                camera_y = point['robot_y'] - self.offset_y
+                camera_x, camera_y = self.robot_to_camera_coords(point['robot_x'], point['robot_y'])
                 print(f"\n{label}:")
                 print(f"  Robot:  X={point['robot_x']:7.1f}, Y={point['robot_y']:7.1f}, Z={point['robot_z']:7.1f}")
                 print(f"  Camera: X={camera_x:7.1f}, Y={camera_y:7.1f}")
@@ -658,9 +668,8 @@ class RobotAreaCalibrator:
             
             for key, point in self.calibration_points.items():
                 if point is not None:
-                    camera_x = point['robot_x'] - self.offset_x
-                    camera_y = point['robot_y'] - self.offset_y
-                    
+                    camera_x, camera_y = self.robot_to_camera_coords(point['robot_x'], point['robot_y'])
+
                     export_data["calibration_points"][key] = {
                         "robot_coords": {
                             "x": round(point['robot_x'], 2),
