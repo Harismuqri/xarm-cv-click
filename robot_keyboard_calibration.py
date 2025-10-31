@@ -66,7 +66,17 @@ class RobotAreaCalibrator:
             'bottom_left': None,   # (0, 0)
             'center': None         # (150, 150)
         }
-        
+
+        # Coordinate transformation mode (for testing different formulas)
+        self.transform_mode = 0  # Cycle through different transformations
+        self.transform_modes = {
+            0: "Mode 0: camera_x = -robot_y - offset_y, camera_y = robot_x - offset_x",
+            1: "Mode 1: camera_x = robot_y + offset_y, camera_y = robot_x - offset_x",
+            2: "Mode 2: camera_x = robot_x - offset_x, camera_y = robot_y - offset_y (no rotation)",
+            3: "Mode 3: camera_x = robot_x - offset_x, camera_y = -robot_y - offset_y",
+            4: "Mode 4: camera_x = -robot_y - offset_y, camera_y = -robot_x + offset_x"
+        }
+
         # Home position
         self.home_position = [1.5, 6.3, 45.5, -0.4, 41.0, -7.0]
         
@@ -211,18 +221,33 @@ class RobotAreaCalibrator:
     def robot_to_camera_coords(self, robot_x, robot_y):
         """
         Convert robot coordinates to camera/workspace coordinates.
-        Accounts for 90-degree rotation between coordinate systems.
-
-        From diagnostic tests:
-        - Robot X+ → Visual UP → Camera Y+
-        - Robot Y+ → Visual LEFT → Camera X-
-
-        Therefore:
-        - camera_y = robot_x - offset_x
-        - camera_x = -(robot_y - offset_y) = offset_y - robot_y
+        Supports multiple transformation modes for testing.
+        Press 'm' to cycle through modes to find correct transformation.
         """
-        camera_x = self.offset_y - robot_y
-        camera_y = robot_x - self.offset_x
+        if self.transform_mode == 0:
+            # Original fix: 90-degree rotation
+            camera_x = -robot_y - self.offset_y
+            camera_y = robot_x - self.offset_x
+        elif self.transform_mode == 1:
+            # Alternative: different rotation direction
+            camera_x = robot_y + self.offset_y
+            camera_y = robot_x - self.offset_x
+        elif self.transform_mode == 2:
+            # No rotation - simple offset
+            camera_x = robot_x - self.offset_x
+            camera_y = robot_y - self.offset_y
+        elif self.transform_mode == 3:
+            # Rotation variant 3
+            camera_x = robot_x - self.offset_x
+            camera_y = -robot_y - self.offset_y
+        elif self.transform_mode == 4:
+            # Rotation variant 4
+            camera_x = -robot_y - self.offset_y
+            camera_y = -robot_x + self.offset_x
+        else:
+            camera_x = robot_x - self.offset_x
+            camera_y = robot_y - self.offset_y
+
         return camera_x, camera_y
 
     def draw_workspace_boundary(self, frame):
@@ -256,42 +281,18 @@ class RobotAreaCalibrator:
                                 dtype=np.float32).reshape(-1, 1, 2)
         center_img = cv2.perspectiveTransform(center_real, self.H_inv).reshape(-1, 2).astype(int)
         
-        # Draw LARGE center reference - multiple layers for high visibility
+        # Draw small center reference marker
         center_pt = tuple(center_img[0])
-        
-        # Large outer circle (cyan/yellow)
-        cv2.circle(frame, center_pt, 30, (0, 255, 255), 3)
-        cv2.circle(frame, center_pt, 25, (0, 255, 255), -1)  # Filled
-        
-        # Medium circle (yellow)
-        cv2.circle(frame, center_pt, 20, (0, 255, 0), -1)  # Green filled
-        
-        # Inner circle (white)
-        cv2.circle(frame, center_pt, 15, (255, 255, 255), -1)  # White filled
-        
-        # Center dot (red)
-        cv2.circle(frame, center_pt, 8, (0, 0, 255), -1)  # Red center
-        
-        # Large crosshair
-        cv2.drawMarker(frame, center_pt, (255, 255, 255), cv2.MARKER_CROSS, 50, 3)
-        cv2.drawMarker(frame, center_pt, (0, 255, 255), cv2.MARKER_CROSS, 60, 2)
-        
-        # Large label
-        cv2.putText(frame, "CENTER (150, 150)", (center_pt[0] + 35, center_pt[1] - 35),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2, cv2.LINE_AA)
-        cv2.putText(frame, "ALIGN ROBOT HERE", (center_pt[0] + 35, center_pt[1] - 10),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
-        
-        # Draw grid lines through center for easier alignment
-        # Vertical line
-        top_y = max(0, center_pt[1] - 200)
-        bottom_y = min(frame.shape[0], center_pt[1] + 200)
-        cv2.line(frame, (center_pt[0], top_y), (center_pt[0], bottom_y), (0, 255, 255), 1)
-        
-        # Horizontal line
-        left_x = max(0, center_pt[0] - 200)
-        right_x = min(frame.shape[1], center_pt[0] + 200)
-        cv2.line(frame, (left_x, center_pt[1]), (right_x, center_pt[1]), (0, 255, 255), 1)
+
+        # Small outer circle (cyan)
+        cv2.circle(frame, center_pt, 8, (0, 255, 255), 2)
+
+        # Small crosshair
+        cv2.drawMarker(frame, center_pt, (0, 255, 255), cv2.MARKER_CROSS, 15, 2)
+
+        # Small label
+        cv2.putText(frame, "C", (center_pt[0] + 12, center_pt[1] + 5),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1, cv2.LINE_AA)
     
     def draw_robot_position(self, frame):
         """Draw current robot position on the frame."""
@@ -321,10 +322,12 @@ class RobotAreaCalibrator:
         if position_changed:
             frame_height, frame_width = frame.shape[:2]
             in_frame = (0 <= pixel_x < frame_width and 0 <= pixel_y < frame_height)
-            print(f"[DEBUG] Robot: ({self.current_x:.1f}, {self.current_y:.1f}, {self.current_z:.1f}), "
-                  f"Camera: ({camera_x:.1f}, {camera_y:.1f}), "
-                  f"Pixel: ({pixel_x}, {pixel_y}), In frame: {in_frame}")
-            
+            print(f"\n[DEBUG - Mode {self.transform_mode}]")
+            print(f"  Robot:  X={self.current_x:7.1f}, Y={self.current_y:7.1f}, Z={self.current_z:7.1f} mm")
+            print(f"  Camera: X={camera_x:7.1f}, Y={camera_y:7.1f} mm")
+            print(f"  Pixel:  X={pixel_x:4d}, Y={pixel_y:4d} {'✓ IN FRAME' if in_frame else '✗ OFF-SCREEN'}")
+            print(f"  Offset: X={self.offset_x:7.1f}, Y={self.offset_y:7.1f} mm")
+
             # Update previous position
             self.prev_x = self.current_x
             self.prev_y = self.current_y
@@ -413,15 +416,24 @@ class RobotAreaCalibrator:
                 info_y = 30
                 cv2.putText(display_frame, "Robot Calibration - Live View", (10, info_y),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                
+
+                # Show transformation mode (highlighted)
+                info_y += 30
+                mode_text = f"Transform Mode: {self.transform_mode} (press 'm' to cycle)"
+                cv2.putText(display_frame, mode_text, (10, info_y),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+
                 if self.current_x is not None:
                     camera_x, camera_y = self.robot_to_camera_coords(self.current_x, self.current_y)
-                    info_y += 30
-                    cv2.putText(display_frame, f"Camera: ({camera_x:.1f}, {camera_y:.1f}) mm", 
+                    info_y += 25
+                    cv2.putText(display_frame, f"Robot: ({self.current_x:.1f}, {self.current_y:.1f}) mm",
+                               (10, info_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                    info_y += 20
+                    cv2.putText(display_frame, f"Camera: ({camera_x:.1f}, {camera_y:.1f}) mm",
                                (10, info_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
-                
+
                 info_y += 25
-                cv2.putText(display_frame, f"Step: {self.step_size}mm", 
+                cv2.putText(display_frame, f"Step: {self.step_size}mm",
                            (10, info_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
                 
                 with self.frame_lock:
@@ -567,6 +579,8 @@ class RobotAreaCalibrator:
         print("    1         : Fine step (1mm)")
         print("    2         : Normal step (10mm)")
         print("    3         : Large step (50mm)")
+        print("\n--- COORDINATE TRANSFORM ---")
+        print("    m         : Cycle transform mode (if dot doesn't sync with robot)")
         print("\n--- CALIBRATION POINTS ---")
         print("    q         : Save current position as TOP-LEFT (0, 300)")
         print("    w         : Save current position as TOP-RIGHT (300, 300)")
@@ -821,7 +835,15 @@ class RobotAreaCalibrator:
                 elif key == '3':
                     self.step_size = self.large_step
                     print(f"[STEP] Large step: {self.step_size}mm")
-                
+
+                # Cycle transformation mode
+                elif key.lower() == 'm':
+                    self.transform_mode = (self.transform_mode + 1) % len(self.transform_modes)
+                    print(f"\n[TRANSFORM MODE {self.transform_mode}]")
+                    print(f"  {self.transform_modes[self.transform_mode]}")
+                    print(f"  Move robot and watch if dot syncs correctly!")
+                    self.display_current_position()
+
                 # Save calibration points
                 elif key.lower() == 'q':
                     self.save_calibration_point('top_left')
