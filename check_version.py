@@ -106,7 +106,8 @@ print("\n" + "="*70)
 print("\nFILE DETAILS:")
 print(f"  Total lines: {len(content.splitlines())}")
 print(f"  Contains 'transform_mode': {('transform_mode' in content)}")
-print(f"  Contains 'm' key handler: {('key.lower() == \\'m\\'' in content)}")
+m_key_check = "key.lower() == 'm'" in content
+print(f"  Contains 'm' key handler: {m_key_check}")
 
 # Check for .pyc files
 pyc_files = [f for f in os.listdir('.') if f.endswith('.pyc')]
