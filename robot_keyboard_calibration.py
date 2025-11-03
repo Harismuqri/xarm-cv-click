@@ -266,14 +266,14 @@ class RobotAreaCalibrator:
         # Transform to image coordinates
         box_img = cv2.perspectiveTransform(box_real, self.H_inv).reshape(-1, 2).astype(int)
         
-        # Draw boundary with thicker, brighter line for better visibility
-        cv2.polylines(frame, [box_img], isClosed=True, color=(0, 255, 0), thickness=3)  # Bright green, thicker
+        # Draw boundary - white line like original
+        cv2.polylines(frame, [box_img], isClosed=True, color=(255, 255, 255), thickness=3)  # White, thick for visibility
         
         # Label corners with better visibility
         labels = ["TL", "TR", "BR", "BL"]
         for i, (pt, label) in enumerate(zip(box_img, labels)):
             cv2.putText(frame, label, tuple(pt + [5, -5]),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)  # Larger, green, bold
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)  # Larger, white, bold
         
         # Draw center point of workspace - LARGE AND VISIBLE
         center_real = np.array([[(self.workspace_max_x + self.workspace_min_x) / 2,
@@ -336,10 +336,17 @@ class RobotAreaCalibrator:
             self.prev_y = self.current_y
             self.prev_z = self.current_z
         
+<<<<<<< HEAD
         # Draw robot position - visible dot with high contrast
         cv2.circle(frame, pos_pt, 30, (0, 0, 255), -1)  # Red filled circle (larger)
         cv2.circle(frame, pos_pt, 50, (255, 255, 255), 2)  # Thick white border
         cv2.circle(frame, pos_pt, 20, (255, 255, 0), -1)  # Small cyan center dot for precision
+=======
+        # Draw robot position - styled like center marker
+        cv2.circle(frame, pos_pt, 12, (0, 0, 255), 3)  # Red outer circle (thick border)
+        cv2.circle(frame, pos_pt, 6, (0, 0, 255), -1)  # Red filled inner circle
+        cv2.drawMarker(frame, pos_pt, (255, 255, 255), cv2.MARKER_CROSS, 20, 2)  # White crosshair
+>>>>>>> b80d9c9d4fa0f81317ec0a2204dcfe2a6608ccff
         
         # If off-screen, draw arrow pointing to it
         frame_height, frame_width = frame.shape[:2]
@@ -409,7 +416,7 @@ class RobotAreaCalibrator:
                 # Add info overlay with better visibility
                 info_y = 30
                 cv2.putText(display_frame, "Robot Calibration - Live View", (10, info_y),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
 
                 # Show transformation mode (highlighted)
                 info_y += 35
