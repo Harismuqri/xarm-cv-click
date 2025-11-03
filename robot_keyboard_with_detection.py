@@ -260,7 +260,7 @@ class RobotKeyboardDetection:
             [0, 300]
         ], dtype=np.float32).reshape(-1, 1, 2)
         box_img = cv2.perspectiveTransform(box_real, self.H_inv).reshape(-1, 2).astype(int)
-        cv2.polylines(frame, [box_img], isClosed=True, color=(0, 0, 0), thickness=3)
+        cv2.polylines(frame, [box_img], isClosed=True, color=(0, 0, 0), thickness=2)  # Thinner border
 
     def draw_robot_position(self, frame):
         """Draw robot position on frame."""
@@ -276,14 +276,14 @@ class RobotKeyboardDetection:
         pos_img = cv2.perspectiveTransform(pos_real, self.H_inv).reshape(-1, 2).astype(int)
         pos_pt = tuple(pos_img[0])
 
-        # Draw robot position - styled like center marker but in blue
-        cv2.circle(frame, pos_pt, 12, (255, 0, 0), 3)  # Blue outer circle
-        cv2.circle(frame, pos_pt, 6, (255, 0, 0), -1)  # Blue filled inner
+        # Draw robot position - styled like center marker but in green
+        cv2.circle(frame, pos_pt, 12, (0, 255, 0), 3)  # Green outer circle
+        cv2.circle(frame, pos_pt, 6, (0, 255, 0), -1)  # Green filled inner
         cv2.drawMarker(frame, pos_pt, (255, 255, 255), cv2.MARKER_CROSS, 20, 2)  # White crosshair
 
         # Label
         cv2.putText(frame, "ROBOT", (pos_pt[0] + 18, pos_pt[1] - 10),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
     def run(self):
         """Main loop with keyboard control and YOLO detection."""
