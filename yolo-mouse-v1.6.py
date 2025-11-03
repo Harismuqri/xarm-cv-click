@@ -542,10 +542,10 @@ def main():
                         shm_manager.update_object(i, x_mm, y_mm, angle_deg, width_mm, height_mm)
 
                     detected_ids.add(i)
-                    color = (255, 0, 255)  # Magenta border for detected objects (better contrast on white)
+                    color = (0, 255, 0)  # Green border for detected objects
 
                 else:
-                    color = (128, 0, 128)  # Dark magenta for objects outside workspace
+                    color = (0, 0, 255)  # Red for objects outside workspace
 
                 corners_int = corners.astype(int)
                 cv2.polylines(annotated_frame, [corners_int], isClosed=True, color=color, thickness=2)
