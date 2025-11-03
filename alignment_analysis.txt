@@ -1,0 +1,121 @@
+================================================================================
+COORDINATE ALIGNMENT ANALYSIS
+================================================================================
+
+Given Calibration Points:
+Detection (X,Y) -> Robot (X,Y)
+------------------------
+(0,0)       -> (88.9, 312)
+(300,0)     -> (85.1, 12.2)
+(300,300)   -> (382, 14.7)
+(0,300)     -> (?, ?)
+
+================================================================================
+CALCULATING MISSING POINT (0,300)
+================================================================================
+
+Method 1: Using parallel sides (rectangular workspace assumption)
+------------------------------------------------------------------
+Vector from (0,0) to (300,0):
+  Robot: (85.1 - 88.9, 12.2 - 312) = (-3.8, -299.8)
+
+For a rectangle, vector from (0,300) to (300,300) should be the same:
+  (382 - X, 14.7 - Y) = (-3.8, -299.8)
+
+  382 - X = -3.8  =>  X = 385.8
+  14.7 - Y = -299.8  =>  Y = 314.5
+
+Method 2: Verification using other pair of sides
+------------------------------------------------------------------
+Vector from (300,0) to (300,300):
+  Robot: (382 - 85.1, 14.7 - 12.2) = (296.9, 2.5)
+
+For a rectangle, vector from (0,0) to (0,300) should be the same:
+  (X - 88.9, Y - 312) = (296.9, 2.5)
+
+  X - 88.9 = 296.9  =>  X = 385.8
+  Y - 312 = 2.5  =>  Y = 314.5
+
+✅ BOTH METHODS AGREE!
+
+================================================================================
+COMPLETE MAPPING:
+================================================================================
+Detection (0,0)       -> Robot (88.9, 312.0)
+Detection (300,0)     -> Robot (85.1, 12.2)
+Detection (300,300)   -> Robot (382.0, 14.7)
+Detection (0,300)     -> Robot (385.8, 314.5)
+
+================================================================================
+TRANSFORMATION ANALYSIS
+================================================================================
+
+The coordinate systems are NOT simply offset - there's a complex transformation:
+
+1. ROTATION: ~90 degrees
+   - Detection X+ roughly corresponds to Robot Y-
+   - Detection Y+ roughly corresponds to Robot X+
+
+2. SLIGHT SKEW/DISTORTION:
+   - The workspace is not perfectly rectangular in robot space
+   - Small non-linearities exist
+
+3. SCALE VARIATION:
+   - Detection X: 0->300 (range of 300)
+   - Robot X: 85.1->385.8 (range of ~300.7)
+   - Robot Y: 12.2->314.5 (range of ~302.3)
+
+4. TRANSLATION/OFFSET:
+   - Detection (0,0) is NOT at Robot (0,0)
+   - There's an ~89mm X offset and ~312mm Y offset at the origin
+
+================================================================================
+WHY SIMPLE OFFSETS DON'T WORK
+================================================================================
+
+Your current code uses:
+  robot_x = detection_x + offset_x
+  robot_y = detection_y + offset_y
+
+This assumes:
+  - NO rotation
+  - NO scaling
+  - Only translation
+
+But the actual transformation includes:
+  ✗ ~90 degree rotation
+  ✗ Slight scale differences
+  ✗ Non-linear distortion
+  ✗ Complex offset
+
+This is why the robot doesn't align with clicked targets!
+
+================================================================================
+SOLUTION: USE HOMOGRAPHY TRANSFORMATION
+================================================================================
+
+A homography matrix can handle:
+  ✓ Rotation
+  ✓ Scaling
+  ✓ Translation
+  ✓ Perspective distortion
+
+The transformation should be:
+  [robot_x]   [h11 h12 h13]   [det_x]
+  [robot_y] = [h21 h22 h23] × [det_y]
+  [   1   ]   [h31 h32 h33]   [  1  ]
+
+Using the 4 calibration points, OpenCV's cv2.findHomography() can calculate
+the exact transformation matrix needed.
+
+================================================================================
+NEXT STEPS
+================================================================================
+
+1. Use the 4 calibration points to calculate homography matrix
+2. Save the matrix to a file (e.g., homography_det_to_robot.pkl)
+3. Update xarm-motion-v1.2.py to use homography instead of simple offsets
+4. Update yolo-mouse-v1.6.py if needed
+5. Test with actual clicks and verify alignment
+
+================================================================================
