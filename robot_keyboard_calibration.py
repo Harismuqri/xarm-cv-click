@@ -337,9 +337,9 @@ class RobotAreaCalibrator:
             self.prev_z = self.current_z
         
         # Draw robot position - visible dot with high contrast
-        cv2.circle(frame, pos_pt, 8, (0, 0, 255), -1)  # Red filled circle (larger)
-        cv2.circle(frame, pos_pt, 10, (255, 255, 255), 2)  # Thick white border
-        cv2.circle(frame, pos_pt, 2, (255, 255, 0), -1)  # Small cyan center dot for precision
+        cv2.circle(frame, pos_pt, 30, (0, 0, 255), -1)  # Red filled circle (larger)
+        cv2.circle(frame, pos_pt, 50, (255, 255, 255), 2)  # Thick white border
+        cv2.circle(frame, pos_pt, 20, (255, 255, 0), -1)  # Small cyan center dot for precision
         
         # If off-screen, draw arrow pointing to it
         frame_height, frame_width = frame.shape[:2]
