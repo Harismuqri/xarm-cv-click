@@ -88,7 +88,7 @@ def Ydraw_transformed_box(frame, H_inv, width_mm=300, height_mm=300):
         [0, height_mm]
     ], dtype=np.float32).reshape(-1, 1, 2)
     box_img = cv2.perspectiveTransform(box_real, H_inv).reshape(-1, 2).astype(int)
-    cv2.polylines(frame, [box_img], isClosed=True, color=(255, 255, 255), thickness=2)
+    cv2.polylines(frame, [box_img], isClosed=True, color=(0, 0, 0), thickness=3)  # Black, thicker for white background
 
 def point_in_polygon(point, polygon):
     """Check if a point is inside a polygon"""
@@ -542,10 +542,10 @@ def main():
                         shm_manager.update_object(i, x_mm, y_mm, angle_deg, width_mm, height_mm)
 
                     detected_ids.add(i)
-                    color = (0, 255, 0)
+                    color = (255, 0, 255)  # Magenta border for detected objects (better contrast on white)
 
                 else:
-                    color = (0, 0, 255)
+                    color = (128, 0, 128)  # Dark magenta for objects outside workspace
 
                 corners_int = corners.astype(int)
                 cv2.polylines(annotated_frame, [corners_int], isClosed=True, color=color, thickness=2)
@@ -554,8 +554,8 @@ def main():
                 if is_inside:
                     # Calculate center in image coordinates
                     center_img = np.mean(corners, axis=0).astype(int)
-                    # Draw center point (circle with cross)
-                    cv2.circle(annotated_frame, tuple(center_img), 5, (255, 0, 255), -1)  # Magenta filled circle
+                    # Draw center point (circle with cross) - RED for better visibility on white background
+                    cv2.circle(annotated_frame, tuple(center_img), 5, (0, 0, 255), -1)  # Red filled circle
                     cv2.circle(annotated_frame, tuple(center_img), 5, (255, 255, 255), 1)  # White border
                     cv2.drawMarker(annotated_frame, tuple(center_img), (255, 255, 255), cv2.MARKER_CROSS, 10, 1)
 
@@ -672,13 +672,13 @@ def main():
                     shm_manager.update_status(status_text)
                     last_saved_status = status_text
 
-            # Status color
+            # Status color - darker for white background visibility
             if status_text == "Not Ready":
-                status_color = (0, 165, 255)
+                status_color = (0, 100, 200)  # Dark orange
             elif status_text == "Detect":
-                status_color = (0, 255, 255)
+                status_color = (200, 150, 0)  # Dark cyan/teal
             elif status_text == "Ready":
-                status_color = (0, 255, 0)
+                status_color = (0, 150, 0)  # Dark green
 
             # Draw status
             cv2.putText(
@@ -692,15 +692,15 @@ def main():
                 cv2.LINE_AA
             )
 
-            # Draw instruction
+            # Draw instruction - dark color for white background
             cv2.putText(
                 annotated_frame,
                 "L-Click:Move | M-Click:Pick | R-Click:Place | Q:Quit",
                 (10, frame.shape[0] - 10),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5,
-                (255, 255, 255),
-                1,
+                (0, 0, 0),  # Black text for white background
+                2,  # Thicker for better visibility
                 cv2.LINE_AA
             )
 
