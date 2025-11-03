@@ -8,6 +8,9 @@ import struct
 import json
 import time
 import os
+import pickle
+import cv2
+import numpy as np
 from xarm.wrapper import XArmAPI
 
 # Shared memory configuration
@@ -103,12 +106,15 @@ class XArmController:
         self._arm = None
         self.is_moving = False
 
-        # Load heights and offsets from config
+        # Load heights from config
         click_config = self.config.get("click_control", {})
         self.safe_height = click_config.get("safe_height", 200)
         self.pick_height = click_config.get("pick_height", 50)
-        self.offset_x = click_config.get("coordinate_offset_x", 0)
-        self.offset_y = click_config.get("coordinate_offset_y", -150)
+
+        # Load homography matrix for coordinate transformation
+        # This replaces the old simple offset approach
+        self.H_det_to_robot = None
+        self.load_homography()
 
         # Home position
         self.home_position = [1.5, 6.3, 45.5, -0.4, 41.0, -7.0]
@@ -149,6 +155,60 @@ class XArmController:
                     "coordinate_offset_y": -150
                 }
             }
+
+    def load_homography(self):
+        """Load homography matrix for detection to robot coordinate transformation."""
+        homography_file = "homography_det_to_robot.pkl"
+        try:
+            # Try to find the file in the same directory as this script
+            if not os.path.isabs(homography_file):
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+                homography_file = os.path.join(base_dir, "homography_det_to_robot.pkl")
+
+            with open(homography_file, "rb") as f:
+                self.H_det_to_robot = pickle.load(f)
+
+            print(f"[Homography] ✅ Loaded coordinate transformation matrix")
+            print(f"[Homography] File: {homography_file}")
+            print(f"[Homography] This accounts for ~90° rotation between detection and robot")
+        except FileNotFoundError:
+            print(f"[Homography] ❌ ERROR: {homography_file} not found!")
+            print(f"[Homography] Run 'create_alignment_matrix.py' first to generate it!")
+            print(f"[Homography] Without this, robot will NOT move to correct positions!")
+            raise FileNotFoundError(
+                f"Required file '{homography_file}' not found. "
+                f"Run create_alignment_matrix.py to generate the coordinate transformation matrix."
+            )
+        except Exception as e:
+            print(f"[Homography] ERROR loading transformation matrix: {e}")
+            raise
+
+    def transform_detection_to_robot(self, det_x, det_y):
+        """
+        Transform detection coordinates to robot coordinates using homography.
+
+        This replaces the old simple offset method:
+            robot_x = det_x + offset_x  # WRONG - doesn't handle rotation
+            robot_y = det_y + offset_y
+
+        Args:
+            det_x: X coordinate from detection system (mm)
+            det_y: Y coordinate from detection system (mm)
+
+        Returns:
+            (robot_x, robot_y): Transformed coordinates in robot space (mm)
+        """
+        if self.H_det_to_robot is None:
+            raise RuntimeError("Homography matrix not loaded! Cannot transform coordinates.")
+
+        # Apply homography transformation
+        det_pt = np.array([[det_x, det_y]], dtype=np.float32).reshape(-1, 1, 2)
+        robot_pt = cv2.perspectiveTransform(det_pt, self.H_det_to_robot).reshape(-1, 2)
+
+        robot_x = robot_pt[0][0]
+        robot_y = robot_pt[0][1]
+
+        return robot_x, robot_y
 
     def connect_robot(self):
         """Connect to xArm robot."""
@@ -207,17 +267,16 @@ class XArmController:
         if z is None:
             z = self.safe_height
 
-        # Coordinate transformation from camera space to robot space
-        robot_x = x + self.offset_x
-        robot_y = y + self.offset_y
+        # Transform detection coordinates to robot coordinates using homography
+        robot_x, robot_y = self.transform_detection_to_robot(x, y)
         robot_z = z
 
         print(f"\n{'='*60}")
         print(f"MOVING ARM TO POSITION")
         print(f"{'='*60}")
-        print(f"Camera coords: X={x:.1f} mm, Y={y:.1f} mm")
-        print(f"Robot coords:  X={robot_x:.1f} mm, Y={robot_y:.1f} mm, Z={robot_z:.1f} mm")
-        print(f"Orientation:   Roll={roll}°, Pitch={pitch}°, Yaw={yaw}°")
+        print(f"Detection coords: X={x:.1f} mm, Y={y:.1f} mm")
+        print(f"Robot coords:     X={robot_x:.1f} mm, Y={robot_y:.1f} mm, Z={robot_z:.1f} mm")
+        print(f"Orientation:      Roll={roll}°, Pitch={pitch}°, Yaw={yaw}°")
 
         try:
             code = self._arm.set_position(
@@ -388,7 +447,7 @@ class XArmClickController:
         print(f"\nWorkspace: X=[{self.workspace_min_x}-{self.workspace_max_x}], "
               f"Y=[{self.workspace_min_y}-{self.workspace_max_y}]")
         print(f"Safe height: {self.arm.safe_height}mm, Pick height: {self.arm.pick_height}mm")
-        print(f"Coordinate offsets: X={self.arm.offset_x:+.0f}mm, Y={self.arm.offset_y:+.0f}mm")
+        print(f"Coordinate transformation: Using homography matrix (handles rotation)")
         print("="*60 + "\n")
 
     def is_position_safe(self, x, y):
