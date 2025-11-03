@@ -18,6 +18,79 @@ import sys
 model = YOLO("D:\\2. yolo\\train30\\weights\\best.pt")
 model.overrides['verbose'] = False
 
+# Global variables for mouse interaction
+mouse_x, mouse_y = 0, 0
+mouse_clicked = False
+mouse_button = "left"
+selected_object = None
+show_coordinates = False
+
+def mouse_callback(event, x, y, flags, param):
+    """Handle mouse events on the detection window"""
+    global mouse_x, mouse_y, mouse_clicked, show_coordinates, mouse_button
+
+    if event == cv2.EVENT_LBUTTONDOWN:
+        mouse_x, mouse_y = x, y
+        mouse_clicked = True
+        mouse_button = "left"
+        show_coordinates = True
+    elif event == cv2.EVENT_MBUTTONDOWN:
+        mouse_x, mouse_y = x, y
+        mouse_clicked = True
+        mouse_button = "middle"
+        show_coordinates = True
+    elif event == cv2.EVENT_RBUTTONDOWN:
+        mouse_x, mouse_y = x, y
+        mouse_clicked = True
+        mouse_button = "right"
+        show_coordinates = True
+
+def draw_info_panel(frame, x, y, info_lines, title="Info"):
+    """Draw an information panel at specified position"""
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 0.5
+    thickness = 1
+    padding = 10
+    line_height = 20
+
+    max_width = 0
+    for line in info_lines:
+        (w, h), _ = cv2.getTextSize(line, font, font_scale, thickness)
+        max_width = max(max_width, w)
+
+    panel_width = max_width + 2 * padding
+    panel_height = len(info_lines) * line_height + 2 * padding + 25
+
+    # Adjust position if panel goes off screen
+    if x + panel_width > frame.shape[1]:
+        x = frame.shape[1] - panel_width - 10
+    if y + panel_height > frame.shape[0]:
+        y = frame.shape[0] - panel_height - 10
+
+    # Draw semi-transparent background
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (x, y), (x + panel_width, y + panel_height), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
+
+    # Draw border
+    cv2.rectangle(frame, (x, y), (x + panel_width, y + panel_height), (0, 255, 255), 2)
+
+    # Draw title
+    cv2.rectangle(frame, (x, y), (x + panel_width, y + 25), (0, 255, 255), -1)
+    cv2.putText(frame, title, (x + padding, y + 18), font, 0.6, (0, 0, 0), 2, cv2.LINE_AA)
+
+    # Draw info lines
+    y_offset = y + 40
+    for line in info_lines:
+        cv2.putText(frame, line, (x + padding, y_offset), font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+        y_offset += line_height
+
+    return frame
+
+def point_in_polygon(point, polygon):
+    """Check if a point is inside a polygon"""
+    return cv2.pointPolygonTest(polygon, point, False) >= 0
+
 class RobotKeyboardDetection:
     """Robot control with keyboard while showing YOLO detection."""
 
@@ -287,6 +360,8 @@ class RobotKeyboardDetection:
 
     def run(self):
         """Main loop with keyboard control and YOLO detection."""
+        global mouse_clicked, mouse_x, mouse_y, selected_object, show_coordinates
+
         print("\n" + "="*70)
         print("ROBOT KEYBOARD CONTROL WITH YOLO DETECTION")
         print("="*70)
@@ -298,10 +373,13 @@ class RobotKeyboardDetection:
         print("  p      : Print position")
         print("  s      : STOP robot (emergency stop)")
         print("  q/ESC  : Quit (robot stays powered)")
+        print("\nMOUSE CONTROLS:")
+        print("  Click  : Show coordinates at clicked position")
         print("="*70 + "\n")
 
         window_name = "Robot Control with Detection"
         cv2.namedWindow(window_name)
+        cv2.setMouseCallback(window_name, mouse_callback)
 
         # Try to use keyboard input
         try:
@@ -354,6 +432,9 @@ class RobotKeyboardDetection:
 
                 annotated_frame = frame.copy()
 
+                # Store object data for mouse interaction
+                object_data_list = []
+
                 # Draw detected objects
                 for i, obb in enumerate(obb_preds, 1):
                     if hasattr(obb, "xyxyxyxy"):
@@ -369,6 +450,29 @@ class RobotKeyboardDetection:
 
                     if is_inside:
                         color = (0, 255, 0)  # Green
+
+                        # Calculate object properties
+                        center = np.mean(transformed, axis=0)
+                        angle = self.get_angle(transformed)
+
+                        side1 = np.linalg.norm(transformed[1] - transformed[0])
+                        side2 = np.linalg.norm(transformed[2] - transformed[1])
+                        width_mm = round(max(side1, side2), 1)
+                        height_mm = round(min(side1, side2), 1)
+
+                        x_mm, y_mm = round(center[0], 1), round(center[1], 1)
+                        angle_deg = round(angle, 2)
+
+                        # Store object data for click detection
+                        object_data_list.append({
+                            'id': i,
+                            'corners': corners.astype(int),
+                            'x_mm': x_mm,
+                            'y_mm': y_mm,
+                            'angle': angle_deg,
+                            'width': width_mm,
+                            'height': height_mm
+                        })
 
                         # Draw center point
                         center_img = np.mean(corners, axis=0).astype(int)
@@ -386,6 +490,70 @@ class RobotKeyboardDetection:
                     label_pos = tuple(corners_int[0] - [0, 10])
                     cv2.putText(annotated_frame, f"Obj {i}", label_pos,
                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+                # Handle mouse click
+                if mouse_clicked:
+                    mouse_clicked = False
+
+                    # Convert click position to real-world coordinates
+                    click_pt = np.array([[mouse_x, mouse_y]], dtype=np.float32).reshape(-1, 1, 2)
+                    real_coord = cv2.perspectiveTransform(click_pt, self.H).reshape(-1, 2)
+                    click_x_mm = real_coord[0][0]
+                    click_y_mm = real_coord[0][1]
+
+                    # Check if clicked on any object
+                    clicked_on_object = False
+                    for obj_data in object_data_list:
+                        if point_in_polygon((mouse_x, mouse_y), obj_data['corners']):
+                            selected_object = obj_data
+                            show_coordinates = True
+                            clicked_on_object = True
+                            button_action = {"left": "at", "middle": "PICK at", "right": "PLACE at"}
+                            print(f"[CLICK] {button_action.get(mouse_button, '')} Object {obj_data['id']}: ({obj_data['x_mm']:.1f}, {obj_data['y_mm']:.1f}) mm")
+                            break
+
+                    # If clicked on empty space, show clicked position
+                    if not clicked_on_object:
+                        selected_object = None
+                        show_coordinates = True
+                        in_workspace = (0 <= click_x_mm <= 300 and 0 <= click_y_mm <= 300)
+                        status = "inside workspace" if in_workspace else "outside workspace"
+                        print(f"[CLICK] Coordinates: ({click_x_mm:.1f}, {click_y_mm:.1f}) mm - {status}")
+
+                # Draw info panel if showing coordinates
+                if show_coordinates:
+                    if selected_object:
+                        # Show object info
+                        info_lines = [
+                            f"Object ID: {selected_object['id']}",
+                            f"Position: ({selected_object['x_mm']:.1f}, {selected_object['y_mm']:.1f}) mm",
+                            f"Angle: {selected_object['angle']:.1f} degrees",
+                            f"Width: {selected_object['width']:.1f} mm",
+                            f"Height: {selected_object['height']:.1f} mm"
+                        ]
+
+                        # Draw info panel
+                        draw_info_panel(annotated_frame, mouse_x + 10, mouse_y + 10, info_lines, f"Object {selected_object['id']}")
+
+                        # Highlight selected object
+                        cv2.polylines(annotated_frame, [selected_object['corners']], isClosed=True, color=(0, 255, 255), thickness=3)
+                    else:
+                        # Show coordinate info at clicked position
+                        click_pt = np.array([[mouse_x, mouse_y]], dtype=np.float32).reshape(-1, 1, 2)
+                        real_coord = cv2.perspectiveTransform(click_pt, self.H).reshape(-1, 2)
+
+                        info_lines = [
+                            f"Pixel: ({mouse_x}, {mouse_y})",
+                            f"Real: ({real_coord[0][0]:.1f}, {real_coord[0][1]:.1f}) mm"
+                        ]
+
+                        in_workspace = (0 <= real_coord[0][0] <= 300 and 0 <= real_coord[0][1] <= 300)
+                        info_lines.append(f"In workspace: {'Yes' if in_workspace else 'No'}")
+
+                        draw_info_panel(annotated_frame, mouse_x + 10, mouse_y + 10, info_lines, "Coordinates")
+
+                        # Draw crosshair at clicked position
+                        cv2.drawMarker(annotated_frame, (mouse_x, mouse_y), (0, 255, 255), cv2.MARKER_CROSS, 20, 2)
 
                 # Draw workspace boundary
                 self.draw_workspace_box(annotated_frame)
