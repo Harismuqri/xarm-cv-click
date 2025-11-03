@@ -296,7 +296,8 @@ class RobotKeyboardDetection:
         print("  1/2/3  : Step size (1mm/10mm/50mm)")
         print("  h      : Home position")
         print("  p      : Print position")
-        print("  q/ESC  : Quit")
+        print("  s      : STOP robot (emergency stop)")
+        print("  q/ESC  : Quit (robot stays powered)")
         print("="*70 + "\n")
 
         window_name = "Robot Control with Detection"
@@ -466,7 +467,12 @@ class RobotKeyboardDetection:
                         print(f"  Robot:  ({self.current_x:.1f}, {self.current_y:.1f}, {self.current_z:.1f}) mm")
                         print(f"  Camera: ({camera_x:.1f}, {camera_y:.1f}) mm\n")
 
+                elif key and key.lower() == 's':
+                    self.stop_robot()
+                    self.update_current_position()
+
                 elif key in ['q', 'esc'] or (cv2.waitKey(1) & 0xFF == ord('q')):
+                    print("\n[INFO] Quitting... (Robot will remain powered)")
                     break
 
                 time.sleep(0.05)
@@ -477,9 +483,23 @@ class RobotKeyboardDetection:
         finally:
             self.shutdown()
 
+    def stop_robot(self):
+        """Emergency stop - halt all robot motion."""
+        try:
+            print("\n[STOP] Emergency stop activated!")
+            self._arm.set_state(4)  # Stop state
+            time.sleep(0.1)
+            self._arm.set_state(0)  # Back to ready
+            print("[STOP] ✅ Robot stopped and ready")
+            return True
+        except Exception as e:
+            print(f"[STOP] Error: {e}")
+            return False
+
     def shutdown(self):
-        """Cleanup."""
-        print("\n[Shutdown] Cleaning up...")
+        """Cleanup camera and windows only. Does NOT stop or kill robot processes."""
+        print("\n[Shutdown] Cleaning up camera and windows...")
+        print("[Shutdown] Note: Robot remains active and powered")
 
         if self.camera is not None:
             try:
