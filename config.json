@@ -1,7 +1,7 @@
 {
     "robot_ip": "192.168.1.151",
     "camera_index": 0,
-    "tcp_speed": 200,
+    "tcp_speed": 300,
     "tcp_acc": 2000,
     "angle_speed": 20,
     "angle_acc": 500,
@@ -15,13 +15,13 @@
         "no_person_timeout": 5
     },
     "click_control": {
-        "safe_height": 200,
-        "pick_height": 50,
+        "safe_height": 50,
+        "pick_height": -5,
         "workspace_min_x": 0,
         "workspace_max_x": 300,
         "workspace_min_y": 0,
         "workspace_max_y": 300,
-        "coordinate_offset_x": -208,
-        "coordinate_offset_y": -148
+        "coordinate_offset_x": 0,
+        "coordinate_offset_y": -150
     }
 }
