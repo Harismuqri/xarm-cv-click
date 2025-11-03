@@ -260,7 +260,7 @@ class RobotKeyboardDetection:
             [0, 300]
         ], dtype=np.float32).reshape(-1, 1, 2)
         box_img = cv2.perspectiveTransform(box_real, self.H_inv).reshape(-1, 2).astype(int)
-        cv2.polylines(frame, [box_img], isClosed=True, color=(0, 0, 0), thickness=3)
+        cv2.polylines(frame, [box_img], isClosed=True, color=(0, 0, 0), thickness=2)  # Thinner border
 
     def draw_robot_position(self, frame):
         """Draw robot position on frame."""
@@ -276,14 +276,14 @@ class RobotKeyboardDetection:
         pos_img = cv2.perspectiveTransform(pos_real, self.H_inv).reshape(-1, 2).astype(int)
         pos_pt = tuple(pos_img[0])
 
-        # Draw robot position - styled like center marker but in blue
-        cv2.circle(frame, pos_pt, 12, (255, 0, 0), 3)  # Blue outer circle
-        cv2.circle(frame, pos_pt, 6, (255, 0, 0), -1)  # Blue filled inner
+        # Draw robot position - styled like center marker but in green
+        cv2.circle(frame, pos_pt, 12, (0, 255, 0), 3)  # Green outer circle
+        cv2.circle(frame, pos_pt, 6, (0, 255, 0), -1)  # Green filled inner
         cv2.drawMarker(frame, pos_pt, (255, 255, 255), cv2.MARKER_CROSS, 20, 2)  # White crosshair
 
         # Label
         cv2.putText(frame, "ROBOT", (pos_pt[0] + 18, pos_pt[1] - 10),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
     def run(self):
         """Main loop with keyboard control and YOLO detection."""
@@ -296,7 +296,8 @@ class RobotKeyboardDetection:
         print("  1/2/3  : Step size (1mm/10mm/50mm)")
         print("  h      : Home position")
         print("  p      : Print position")
-        print("  q/ESC  : Quit")
+        print("  s      : STOP robot (emergency stop)")
+        print("  q/ESC  : Quit (robot stays powered)")
         print("="*70 + "\n")
 
         window_name = "Robot Control with Detection"
@@ -466,7 +467,12 @@ class RobotKeyboardDetection:
                         print(f"  Robot:  ({self.current_x:.1f}, {self.current_y:.1f}, {self.current_z:.1f}) mm")
                         print(f"  Camera: ({camera_x:.1f}, {camera_y:.1f}) mm\n")
 
+                elif key and key.lower() == 's':
+                    self.stop_robot()
+                    self.update_current_position()
+
                 elif key in ['q', 'esc'] or (cv2.waitKey(1) & 0xFF == ord('q')):
+                    print("\n[INFO] Quitting... (Robot will remain powered)")
                     break
 
                 time.sleep(0.05)
@@ -477,9 +483,23 @@ class RobotKeyboardDetection:
         finally:
             self.shutdown()
 
+    def stop_robot(self):
+        """Emergency stop - halt all robot motion."""
+        try:
+            print("\n[STOP] Emergency stop activated!")
+            self._arm.set_state(4)  # Stop state
+            time.sleep(0.1)
+            self._arm.set_state(0)  # Back to ready
+            print("[STOP] ✅ Robot stopped and ready")
+            return True
+        except Exception as e:
+            print(f"[STOP] Error: {e}")
+            return False
+
     def shutdown(self):
-        """Cleanup."""
-        print("\n[Shutdown] Cleaning up...")
+        """Cleanup camera and windows only. Does NOT stop or kill robot processes."""
+        print("\n[Shutdown] Cleaning up camera and windows...")
+        print("[Shutdown] Note: Robot remains active and powered")
 
         if self.camera is not None:
             try:
