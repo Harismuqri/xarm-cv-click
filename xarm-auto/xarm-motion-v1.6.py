@@ -273,7 +273,7 @@ class XArmController:
             }
 
     def wait_for_yolo_calibration(self):
-        """Wait for YOLO calibration to complete by checking for homography file."""
+        """Wait for YOLO calibration to complete by monitoring file modification time."""
         print("\n" + "="*60)
         print("[Calibration] Waiting for YOLO camera calibration...")
         print("[Calibration] Please run yolo-mouse-v2.py now")
@@ -285,28 +285,49 @@ class XArmController:
         homography_file = os.path.join(script_dir, "homography_auto.pkl")
         det_to_robot_file = os.path.join(script_dir, "homography_det_to_robot.pkl")
 
-        # Remove old homography files if they exist
-        for file_path in [homography_file, det_to_robot_file]:
-            if os.path.exists(file_path):
-                try:
-                    os.remove(file_path)
-                    print(f"[Calibration] Removed old file: {os.path.basename(file_path)}")
-                except Exception as e:
-                    print(f"[Calibration] Could not remove old file: {e}")
+        # Get initial modification time if files exist
+        initial_mtime = None
+        if os.path.exists(homography_file):
+            initial_mtime = os.path.getmtime(homography_file)
+            print(f"[Calibration] Found existing calibration file")
+            print(f"[Calibration] Waiting for YOLO to overwrite with new calibration...")
+        else:
+            print(f"[Calibration] No existing calibration - waiting for YOLO to create files...")
 
         wait_count = 0
-        while not os.path.exists(homography_file):
+        calibration_complete = False
+
+        while not calibration_complete:
             time.sleep(1)
             wait_count += 1
-            if wait_count % 5 == 0:
-                print(f"[Calibration] Still waiting... ({wait_count}s)")
+
+            # Check if file exists and has been modified
+            if os.path.exists(homography_file):
+                current_mtime = os.path.getmtime(homography_file)
+
+                if initial_mtime is None:
+                    # File was just created
+                    calibration_complete = True
+                    print(f"\n[Calibration] New calibration file detected!")
+                elif current_mtime > initial_mtime:
+                    # File was modified (overwritten)
+                    calibration_complete = True
+                    print(f"\n[Calibration] Calibration file updated!")
+                else:
+                    # File exists but hasn't been modified yet
+                    if wait_count % 5 == 0:
+                        print(f"[Calibration] Waiting for new calibration... ({wait_count}s)")
+            else:
+                # File doesn't exist yet
+                if wait_count % 5 == 0:
+                    print(f"[Calibration] Waiting for calibration files... ({wait_count}s)")
 
         # Give it a moment to ensure both files are fully written
         time.sleep(1)
-        
+
         print("\n" + "="*60)
         print("[Calibration] ✅ YOLO calibration detected!")
-        print(f"[Calibration] Homography file found: {homography_file}")
+        print(f"[Calibration] Homography file: {homography_file}")
         print("[Calibration] Camera calibration complete")
         print("="*60 + "\n")
 
