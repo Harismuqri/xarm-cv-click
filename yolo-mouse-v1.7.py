@@ -283,7 +283,7 @@ class ClickDataManager:
             try:
                 self.shm = shared_memory.SharedMemory(name=self.name, create=True, size=self.size)
                 print(f"[INFO] Created click data shared memory: {self.name}")
-                self._write_data({"click_x": 0, "click_y": 0, "timestamp": 0, "processed": True, "button": "none"})
+                self._write_data({"click_x": 0, "click_y": 0, "timestamp": 0, "processed": True, "button": "none", "angle": 0.0})
             except Exception as e:
                 print(f"[ERROR] Failed to create shared memory: {e}")
                 raise
@@ -316,50 +316,37 @@ class ClickDataManager:
         try:
             length = struct.unpack('I', bytes(self.shm.buf[:4]))[0]
             if length == 0 or length > self.size - 4:
-                return {"click_x": 0, "click_y": 0, "timestamp": 0, "processed": True, "button": "none"}
+                return {"click_x": 0, "click_y": 0, "timestamp": 0, "processed": True, "button": "none", "angle": 0.0}
 
             json_bytes = bytes(self.shm.buf[4:4+length])
             json_str = json_bytes.decode('utf-8')
             data = json.loads(json_str)
 
-            # Ensure button key exists
+            # Ensure button and angle keys exist
             if "button" not in data:
                 data["button"] = "left"
+            if "angle" not in data:
+                data["angle"] = 0.0
 
             return data
         except Exception as e:
             print(f"[ERROR] Failed to read click data: {e}")
-            return {"click_x": 0, "click_y": 0, "timestamp": 0, "processed": True, "button": "none"}
+            return {"click_x": 0, "click_y": 0, "timestamp": 0, "processed": True, "button": "none", "angle": 0.0}
 
-    def write_click(self, x, y, button="left", angle=None, object_id=None, width=None, height=None):
-        """Write a new click position with button type and optional object metadata."""
+    def write_click(self, x, y, button="left", angle=0.0):
+        """Write a new click position with button type and object angle."""
         data = {
             "click_x": float(x),
             "click_y": float(y),
             "button": button,  # "left", "middle", or "right"
+            "angle": float(angle),  # Object angle in degrees
             "timestamp": time.time(),
             "processed": False
         }
-        # attach metadata if present
-        if angle is not None:
-            try:
-                data["angle"] = float(angle)
-            except Exception:
-                data["angle"] = angle
-        if object_id is not None:
-            try:
-                data["object_id"] = int(object_id)
-            except Exception:
-                data["object_id"] = object_id
-        if width is not None:
-            data["width"] = float(width)
-        if height is not None:
-            data["height"] = float(height)
-
         self._write_data(data)
         button_action = {"left": "MOVE", "middle": "PICK", "right": "PLACE"}
-        print(f"[CLICK-{button_action.get(button, button).upper()}] Sent to robot: ({x:.1f}, {y:.1f}) mm angle={data.get('angle','-')}")
-       
+        print(f"[CLICK-{button_action.get(button, button).upper()}] Sent to robot: ({x:.1f}, {y:.1f}) mm, Angle: {angle:.1f}°")
+
     def cleanup(self):
         """Close and unlink shared memory."""
         if self.shm:
@@ -435,11 +422,6 @@ def main():
     shm_manager = SharedMemoryManager()
     click_manager = ClickDataManager()
 
-    # Auto-pick configuration (set to True to enable automatic picks when system is READY)
-    AUTO_PICK_ENABLED = False         # <-- change to True to enable
-    AUTO_PICK_COOLDOWN = 5.0          # seconds between auto-picks for same object
-    last_auto_pick_time = {}          # maps object_id -> last pick time
-
     last_saved_status = None
     last_saved_objects = {}
 
@@ -482,10 +464,10 @@ def main():
     cv2.setMouseCallback(window_name, mouse_callback)
 
     print("\n" + "="*60)
-    print("INTERACTIVE MODE ENABLED")
+    print("INTERACTIVE MODE ENABLED - WITH AUTO GRIPPER ANGLE")
     print("="*60)
     print("• Left click: MOVE to position")
-    print("• Middle click: PICK at position")
+    print("• Middle click: PICK at position (auto-adjusts gripper angle)")
     print("• Right click: PLACE at position")
     print("• Press 'q': Quit")
     print("="*60 + "\n")
@@ -537,7 +519,7 @@ def main():
                     x_mm, y_mm = round(center[0], 1), round(center[1], 1)
                     angle_deg = round(angle, 2)
 
-                    # Store object data for click detection
+                    # Store object data for click detection (NOW INCLUDING ANGLE!)
                     object_data_list.append({
                         'id': i,
                         'corners': corners.astype(int),
@@ -557,7 +539,7 @@ def main():
                         abs(prev[3] - width_mm) >= 2.0 or
                         abs(prev[4] - height_mm) >= 2.0
                     ):
-                        # Update object data (console prints removed for cleaner output)
+                        # Update object data
                         last_outputs[i] = (x_mm, y_mm, angle_deg, width_mm, height_mm)
                         last_change_time[i] = current_time
                         shm_manager.update_object(i, x_mm, y_mm, angle_deg, width_mm, height_mm)
@@ -592,7 +574,7 @@ def main():
                     cv2.LINE_AA
                 )
 
-            # Handle mouse click
+            # Handle mouse click - NOW WITH ANGLE!
             if mouse_clicked:
                 mouse_clicked = False
 
@@ -609,25 +591,22 @@ def main():
                         selected_object = obj_data
                         show_coordinates = True
                         clicked_on_object = True
-                        # Send object center position to robot with button type and metadata
+                        # Send object center position AND ANGLE to robot with button type
                         click_manager.write_click(
-                            obj_data['x_mm'],
-                            obj_data['y_mm'],
+                            obj_data['x_mm'], 
+                            obj_data['y_mm'], 
                             mouse_button,
-                            angle=obj_data.get('angle', 0.0),
-                            object_id=obj_data.get('id', None),
-                            width=obj_data.get('width', 0.0),
-                            height=obj_data.get('height', 0.0)
+                            obj_data['angle']  # ← KEY ADDITION: Send the angle!
                         )
                         break
 
-                # If clicked on empty space, send clicked position to robot
+                # If clicked on empty space, send clicked position to robot (angle = 0)
                 if not clicked_on_object:
                     selected_object = None
                     show_coordinates = True
                     # Send clicked position to robot (if inside workspace)
                     if 0 <= click_x_mm <= 300 and 0 <= click_y_mm <= 300:
-                        click_manager.write_click(click_x_mm, click_y_mm, mouse_button)
+                        click_manager.write_click(click_x_mm, click_y_mm, mouse_button, angle=0.0)
                     else:
                         print(f"[WARNING] Click outside workspace: ({click_x_mm:.1f}, {click_y_mm:.1f}) mm")
 
@@ -688,22 +667,6 @@ def main():
                             shm_manager.update_object(i, x_mm, y_mm, angle_deg, width_mm, height_mm)
                             last_saved_objects[i] = curr_obj
 
-                        # Optional Auto-pick: send a PICK click automatically when Ready (one per cooldown)
-                        if AUTO_PICK_ENABLED:
-                            last_time = last_auto_pick_time.get(i, 0)
-                            if time.time() - last_time > AUTO_PICK_COOLDOWN:
-                                # send pick with angle metadata
-                                click_manager.write_click(
-                                    x_mm,
-                                    y_mm,
-                                    "middle",
-                                    angle=angle_deg,
-                                    object_id=i,
-                                    width=width_mm,
-                                    height=height_mm
-                                )
-                                last_auto_pick_time[i] = time.time()
-
             elif status_text == "Not Ready":
                 if status_text != last_saved_status:
                     shm_manager.update_status(status_text)
@@ -740,7 +703,7 @@ def main():
             # Draw instruction - dark color for white background
             cv2.putText(
                 annotated_frame,
-                "L-Click:Move | M-Click:Pick | R-Click:Place | Q:Quit",
+                "L-Click:Move | M-Click:Pick(Auto-Angle) | R-Click:Place | Q:Quit",
                 (10, frame.shape[0] - 10),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5,

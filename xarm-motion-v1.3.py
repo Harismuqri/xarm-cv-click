@@ -1,6 +1,6 @@
 """
-xArm Robot Controller - Click-based Movement with Mouse Buttons
-Left Click = Move, Middle Click = Pick, Right Click = Place
+xArm Robot Controller - Click-based Movement with Automatic Gripper Angle Adjustment
+Left Click = Move, Middle Click = Pick (with auto-angle), Right Click = Place
 """
 
 from multiprocessing import shared_memory
@@ -153,8 +153,7 @@ class XArmController:
                     "workspace_min_y": 0,
                     "workspace_max_y": 300,
                     "coordinate_offset_x": 0,
-                    "coordinate_offset_y": -150,
-                    "angle_offset_deg": 90
+                    "coordinate_offset_y": -150
                 }
             }
 
@@ -171,17 +170,32 @@ class XArmController:
 
             print(f"[Homography] ✅ Loaded coordinate transformation matrix")
             print(f"[Homography] File: {homography_file}")
+            print(f"[Homography] This accounts for ~90° rotation between detection and robot")
         except FileNotFoundError:
             print(f"[Homography] ❌ ERROR: {homography_file} not found!")
-            raise FileNotFoundError(f"Required file '{homography_file}' not found.")
+            print(f"[Homography] Run 'create_alignment_matrix.py' first to generate it!")
+            print(f"[Homography] Without this, robot will NOT move to correct positions!")
+            raise FileNotFoundError(
+                f"Required file '{homography_file}' not found. "
+                f"Run create_alignment_matrix.py to generate the coordinate transformation matrix."
+            )
         except Exception as e:
             print(f"[Homography] ERROR loading transformation matrix: {e}")
             raise
 
     def transform_detection_to_robot(self, det_x, det_y):
-        """Transform detection coordinates to robot coordinates using homography."""
+        """
+        Transform detection coordinates to robot coordinates using homography.
+        
+        Args:
+            det_x: X coordinate from detection system (mm)
+            det_y: Y coordinate from detection system (mm)
+
+        Returns:
+            (robot_x, robot_y): Transformed coordinates in robot space (mm)
+        """
         if self.H_det_to_robot is None:
-            raise RuntimeError("Homography matrix not loaded!")
+            raise RuntimeError("Homography matrix not loaded! Cannot transform coordinates.")
 
         det_pt = np.array([[det_x, det_y]], dtype=np.float32).reshape(-1, 1, 2)
         robot_pt = cv2.perspectiveTransform(det_pt, self.H_det_to_robot).reshape(-1, 2)
@@ -193,7 +207,11 @@ class XArmController:
 
     def calculate_gripper_yaw(self, object_angle_deg):
         """
-        Calculate the gripper YAW angle from detected object angle.
+        Calculate the gripper yaw angle based on the detected object angle.
+        
+        The object angle from detection represents the orientation of the object's
+        long axis. We need to convert this to the robot's coordinate system and
+        calculate the appropriate yaw angle for the gripper.
         
         Args:
             object_angle_deg: Object angle from detection (0-180 degrees)
@@ -201,11 +219,15 @@ class XArmController:
         Returns:
             yaw_deg: Gripper yaw angle for the robot (-180 to 180 degrees)
         """
-        # Get offset from config
-        angle_offset = self.config.get("click_control", {}).get("angle_offset_deg", 90)
+        # The detection angle is in the detection coordinate system
+        # We need to account for the ~90° rotation between detection and robot coords
         
-        # Apply offset
-        yaw_deg = object_angle_deg - angle_offset
+        # Option 1: Direct mapping (if detection and robot yaw align)
+        # yaw_deg = object_angle_deg
+        
+        # Option 2: Apply 90° offset (if there's a consistent rotation)
+        # This is common when camera and robot base are rotated relative to each other
+        yaw_deg = object_angle_deg - 90.0
         
         # Normalize to [-180, 180] range
         while yaw_deg > 180:
@@ -311,7 +333,7 @@ class XArmController:
 
     def pick_sequence(self, x, y, object_angle=0.0):
         """
-        Execute a pick sequence with automatic gripper angle adjustment.
+        Execute a pick sequence at the specified position with automatic gripper angle adjustment.
         
         Args:
             x: X coordinate (mm)
@@ -363,7 +385,15 @@ class XArmController:
             return False
 
     def place_sequence(self, x, y, maintain_angle=True, object_angle=0.0):
-        """Execute a place sequence at the specified position."""
+        """
+        Execute a place sequence at the specified position.
+        
+        Args:
+            x: X coordinate (mm)
+            y: Y coordinate (mm)
+            maintain_angle: Whether to maintain the gripper angle from pick
+            object_angle: Object angle if maintain_angle is True
+        """
         print(f"\n{'='*60}")
         print(f"EXECUTING PLACE SEQUENCE")
         print(f"{'='*60}")
@@ -470,6 +500,7 @@ class XArmClickController:
         print(f"\nWorkspace: X=[{self.workspace_min_x}-{self.workspace_max_x}], "
               f"Y=[{self.workspace_min_y}-{self.workspace_max_y}]")
         print(f"Safe height: {self.arm.safe_height}mm, Pick height: {self.arm.pick_height}mm")
+        print(f"Coordinate transformation: Using homography matrix (handles rotation)")
         print("="*60 + "\n")
 
     def is_position_safe(self, x, y):
@@ -482,7 +513,7 @@ class XArmClickController:
         x = click_data.get("click_x", 0)
         y = click_data.get("click_y", 0)
         button = click_data.get("button", "left")
-        angle = click_data.get("angle", 0.0)  # Read the angle from click data
+        angle = click_data.get("angle", 0.0)  # ← Read the angle from click data!
         timestamp = click_data.get("timestamp", 0)
 
         # Ignore old or duplicate clicks
@@ -545,17 +576,20 @@ class XArmClickController:
 
         try:
             while self.running:
+                # Read click data
                 click_data = self.click_manager.read_click()
 
+                # Debug: Show we're checking (every 100 checks = ~5 seconds)
                 check_count += 1
-                if check_count % 100 == 0:
-                    print(f"[DEBUG] Still monitoring... (checked {check_count} times)")
+                # if check_count % 100 == 0:
+                #     print(f"[DEBUG] Still monitoring... (checked {check_count} times)")
 
+                # Check if there's a new unprocessed click
                 if not click_data.get("processed", True):
                     print(f"[DEBUG] Found unprocessed click: {click_data}")
                     self.process_click(click_data)
 
-                time.sleep(0.05)
+                time.sleep(0.05)  # Check at 20 Hz
 
         except KeyboardInterrupt:
             print("\n\n[INFO] Stopping arm controller...")
@@ -580,7 +614,10 @@ def main():
     print("  • LEFT CLICK   = Move to position")
     print("  • MIDDLE CLICK = Pick sequence (auto-adjusts gripper angle)")
     print("  • RIGHT CLICK  = Place sequence (maintains gripper angle)")
-    print("\nThe gripper will automatically align with the detected object orientation!")
+    print("\nThe gripper will automatically align with the detected object")
+    print("orientation during pick operations!")
+    print("\nRobot will go to home position on startup.")
+    print("Make sure the detection system is running!")
     print("="*60 + "\n")
 
     time.sleep(2)
