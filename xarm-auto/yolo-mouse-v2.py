@@ -637,19 +637,46 @@ def main():
         shm_manager.cleanup()
         return
 
+    # Validate and adjust camera indices if needed
+    if DETECTION_CAMERA_INDEX >= num_cameras:
+        print(f"[WARNING] Detection camera index {DETECTION_CAMERA_INDEX} not available (only {num_cameras} camera(s) found)")
+        print(f"[INFO] Using camera index 0 instead")
+        actual_detection_index = 0
+    else:
+        actual_detection_index = DETECTION_CAMERA_INDEX
+
     # Initialize detection camera (configured index - top-down view)
-    cam_detect = cam_list.GetByIndex(DETECTION_CAMERA_INDEX)
-    cam_detect.Init()
-    serial_detect = cam_detect.TLDevice.DeviceSerialNumber.GetValue()
-    print(f"[INFO] Detection camera initialized (Index {DETECTION_CAMERA_INDEX}, Serial: {serial_detect})")
-    
+    try:
+        cam_detect = cam_list.GetByIndex(actual_detection_index)
+        cam_detect.Init()
+        serial_detect = cam_detect.TLDevice.DeviceSerialNumber.GetValue()
+        print(f"[INFO] Detection camera initialized (Index {actual_detection_index}, Serial: {serial_detect})")
+    except Exception as e:
+        print(f"[ERROR] Failed to initialize detection camera: {e}")
+        cam_list.Clear()
+        system.ReleaseInstance()
+        shm_manager.cleanup()
+        return
+
     # Initialize inspection camera (configured index - gripper-mounted)
     cam_inspect = None
     if num_cameras >= 2:
-        cam_inspect = cam_list.GetByIndex(INSPECTION_CAMERA_INDEX)
-        cam_inspect.Init()
-        serial_inspect = cam_inspect.TLDevice.DeviceSerialNumber.GetValue()
-        print(f"[INFO] Inspection camera initialized (Index {INSPECTION_CAMERA_INDEX}, Serial: {serial_inspect})")
+        if INSPECTION_CAMERA_INDEX >= num_cameras or INSPECTION_CAMERA_INDEX == actual_detection_index:
+            if INSPECTION_CAMERA_INDEX == actual_detection_index:
+                print(f"[WARNING] Inspection camera index {INSPECTION_CAMERA_INDEX} conflicts with detection camera")
+            else:
+                print(f"[WARNING] Inspection camera index {INSPECTION_CAMERA_INDEX} not available")
+            print(f"[INFO] Inspection mode will be disabled")
+        else:
+            try:
+                cam_inspect = cam_list.GetByIndex(INSPECTION_CAMERA_INDEX)
+                cam_inspect.Init()
+                serial_inspect = cam_inspect.TLDevice.DeviceSerialNumber.GetValue()
+                print(f"[INFO] Inspection camera initialized (Index {INSPECTION_CAMERA_INDEX}, Serial: {serial_inspect})")
+            except Exception as e:
+                print(f"[WARNING] Failed to initialize inspection camera: {e}")
+                print(f"[INFO] Inspection mode will be disabled")
+                cam_inspect = None
     else:
         print("[WARNING] Only 1 camera found. Inspection mode will be disabled.")
 
