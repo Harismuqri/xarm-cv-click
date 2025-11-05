@@ -24,6 +24,12 @@ CAMERA_OFFSET_X = 92.9
 CAMERA_OFFSET_Y = -1.35
 CAMERA_OFFSET_ERROR = 0.4
 
+# Robot workspace boundaries (mm) - actual robot coordinates
+ROBOT_MIN_X = 88.9
+ROBOT_MAX_X = 382.0
+ROBOT_MIN_Y = 14.7
+ROBOT_MAX_Y = 312.0
+
 class ClickDataManager:
     """Manages shared memory for mouse click data."""
 
@@ -366,6 +372,69 @@ class XArmController:
 
         return robot_x, robot_y
 
+    def is_robot_position_safe(self, robot_x, robot_y):
+        """
+        Check if robot coordinates are within workspace boundaries.
+
+        Args:
+            robot_x, robot_y: Robot coordinates (mm)
+
+        Returns:
+            bool: True if position is safe, False otherwise
+        """
+        return (ROBOT_MIN_X <= robot_x <= ROBOT_MAX_X and
+                ROBOT_MIN_Y <= robot_y <= ROBOT_MAX_Y)
+
+    def calculate_optimal_pick_angle(self, object_angle, object_width, object_height):
+        """
+        Calculate the optimal gripper angle for picking based on object dimensions.
+
+        The gripper should align to grip the narrower dimension of the object.
+
+        Args:
+            object_angle: Detected object angle in degrees (0-180)
+            object_width: Object width in mm
+            object_height: Object height in mm
+
+        Returns:
+            float: Optimal gripper yaw angle in degrees
+        """
+        if object_width <= 0 or object_height <= 0:
+            # No dimension data, use object angle directly
+            return object_angle
+
+        # Determine which dimension is smaller (should be gripped)
+        if object_width < object_height:
+            # Width is smaller - gripper should align with object angle to grip width
+            gripper_angle = object_angle
+            print(f"[Pick Logic] Width ({object_width:.1f}mm) < Height ({object_height:.1f}mm)")
+            print(f"[Pick Logic] Gripper aligns WITH object angle: {gripper_angle:.1f}°")
+        else:
+            # Height is smaller - gripper should rotate 90° to grip height
+            gripper_angle = (object_angle + 90) % 180
+            print(f"[Pick Logic] Height ({object_height:.1f}mm) < Width ({object_width:.1f}mm)")
+            print(f"[Pick Logic] Gripper rotates 90° from object: {object_angle:.1f}° → {gripper_angle:.1f}°")
+
+        return gripper_angle
+
+    def calculate_optimal_inspect_angle(self, object_angle):
+        """
+        Calculate the optimal camera viewing angle for inspection.
+
+        For best inspection, camera should view object from perpendicular angle.
+
+        Args:
+            object_angle: Detected object angle in degrees (0-180)
+
+        Returns:
+            float: Optimal camera yaw angle in degrees
+        """
+        # View from 90° offset for better side view of object features
+        inspect_angle = (object_angle + 90) % 180
+        print(f"[Inspect Logic] Object angle: {object_angle:.1f}°")
+        print(f"[Inspect Logic] Camera views from perpendicular: {inspect_angle:.1f}°")
+        return inspect_angle
+
     def connect_robot(self):
         """Connect to the xArm robot."""
         try:
@@ -469,6 +538,16 @@ class XArmController:
             # Transform detection coordinates to robot coordinates
             robot_x, robot_y = self.transform_detection_to_robot(det_x, det_y)
 
+            # Check if robot position is within workspace
+            if not self.is_robot_position_safe(robot_x, robot_y):
+                print(f"\n{'='*60}")
+                print(f"[Move] ❌ POSITION OUT OF BOUNDS")
+                print(f"[Move] Robot position: ({robot_x:.1f}, {robot_y:.1f}) mm")
+                print(f"[Move] Workspace limits: X=[{ROBOT_MIN_X:.1f}-{ROBOT_MAX_X:.1f}], Y=[{ROBOT_MIN_Y:.1f}-{ROBOT_MAX_Y:.1f}]")
+                print(f"[Move] Cannot proceed - position outside robot workspace!")
+                print(f"{'='*60}\n")
+                return False
+
             print(f"\n{'='*60}")
             print(f"[Move] Detection coords: ({det_x:.1f}, {det_y:.1f}) mm")
             print(f"[Move] Robot coords: ({robot_x:.1f}, {robot_y:.1f}) mm")
@@ -519,16 +598,28 @@ class XArmController:
             # Transform to robot coordinates
             robot_x, robot_y = self.transform_detection_to_robot(det_x, det_y)
 
+            # Check if robot position is within workspace
+            if not self.is_robot_position_safe(robot_x, robot_y):
+                print(f"\n{'='*60}")
+                print(f"[Pick] ❌ POSITION OUT OF BOUNDS")
+                print(f"[Pick] Robot position: ({robot_x:.1f}, {robot_y:.1f}) mm")
+                print(f"[Pick] Workspace limits: X=[{ROBOT_MIN_X:.1f}-{ROBOT_MAX_X:.1f}], Y=[{ROBOT_MIN_Y:.1f}-{ROBOT_MAX_Y:.1f}]")
+                print(f"[Pick] Cannot proceed - position outside robot workspace!")
+                print(f"{'='*60}\n")
+                return False
+
+            # Calculate optimal gripper angle based on object dimensions
+            gripper_angle = self.calculate_optimal_pick_angle(object_angle, object_width, object_height)
+
             # Calculate gripper opening based on object dimensions
             # The gripper needs to open wider than the narrower dimension of the object
             # Gripper position: 0 = fully closed, 850 = fully open
-            # Add safety margin of 10mm
+            # Add safety margin of 15mm
             if object_width > 0 and object_height > 0:
                 # Use the smaller dimension (perpendicular to gripper fingers)
                 grip_dimension = min(object_width, object_height)
                 # Convert mm to gripper position (assuming ~85mm max opening at position 850)
-                # gripper_pos = (grip_dimension + 10) / 85.0 * 850
-                # Cap between 100 (min useful opening) and 850 (max opening)
+                # Cap between 200 (min useful opening) and 850 (max opening)
                 gripper_opening = int(min(850, max(200, (grip_dimension + 15) / 85.0 * 850)))
                 print(f"[Pick] Object size: {object_width:.1f}x{object_height:.1f} mm")
                 print(f"[Pick] Calculated gripper opening: {gripper_opening} (for {grip_dimension:.1f}mm grip)")
@@ -541,14 +632,14 @@ class XArmController:
             print(f"[Pick] PICK SEQUENCE START")
             print(f"[Pick] Detection coords: ({det_x:.1f}, {det_y:.1f}) mm")
             print(f"[Pick] Robot coords: ({robot_x:.1f}, {robot_y:.1f}) mm")
-            print(f"[Pick] Object angle: {object_angle:.1f}°")
+            print(f"[Pick] Object angle: {object_angle:.1f}° → Gripper angle: {gripper_angle:.1f}°")
             print(f"{'='*60}")
 
             # Step 1: Move to safe height above target
             print(f"[Pick] Step 1/4: Moving to safe height ({self.safe_height}mm)...")
             code = self._arm.set_position(
                 x=robot_x, y=robot_y, z=self.safe_height,
-                roll=180, pitch=0, yaw=object_angle,
+                roll=180, pitch=0, yaw=gripper_angle,
                 speed=self.config.get("tcp_speed", 300),
                 wait=True
             )
@@ -565,7 +656,7 @@ class XArmController:
             print(f"[Pick] Step 3/4: Moving to pick height ({self.pick_height}mm)...")
             code = self._arm.set_position(
                 x=robot_x, y=robot_y, z=self.pick_height,
-                roll=180, pitch=0, yaw=object_angle,
+                roll=180, pitch=0, yaw=gripper_angle,
                 speed=100,
                 wait=True
             )
@@ -582,7 +673,7 @@ class XArmController:
             print(f"[Pick] Returning to safe height...")
             code = self._arm.set_position(
                 x=robot_x, y=robot_y, z=self.safe_height,
-                roll=180, pitch=0, yaw=object_angle,
+                roll=180, pitch=0, yaw=gripper_angle,
                 speed=self.config.get("tcp_speed", 300),
                 wait=True
             )
@@ -608,6 +699,16 @@ class XArmController:
         try:
             # Transform to robot coordinates
             robot_x, robot_y = self.transform_detection_to_robot(det_x, det_y)
+
+            # Check if robot position is within workspace
+            if not self.is_robot_position_safe(robot_x, robot_y):
+                print(f"\n{'='*60}")
+                print(f"[Place] ❌ POSITION OUT OF BOUNDS")
+                print(f"[Place] Robot position: ({robot_x:.1f}, {robot_y:.1f}) mm")
+                print(f"[Place] Workspace limits: X=[{ROBOT_MIN_X:.1f}-{ROBOT_MAX_X:.1f}], Y=[{ROBOT_MIN_Y:.1f}-{ROBOT_MAX_Y:.1f}]")
+                print(f"[Place] Cannot proceed - position outside robot workspace!")
+                print(f"{'='*60}\n")
+                return False
 
             print(f"\n{'='*60}")
             print(f"[Place] PLACE SEQUENCE START")
@@ -673,26 +774,37 @@ class XArmController:
 
         Args:
             target_det_x, target_det_y: Target position in detection coordinates (mm)
-            object_angle: Object angle in degrees (0-180) - gripper will match this angle
+            object_angle: Object angle in degrees (0-180) - used to calculate optimal camera angle
             offset_x, offset_y: Camera offset from gripper center point (mm)
         """
         try:
-            print(f"\n{'='*60}")
-            print(f"[Inspect] INSPECTION SEQUENCE START")
-            print(f"[Inspect] Target (detection): ({target_det_x:.1f}, {target_det_y:.1f}) mm")
-            print(f"[Inspect] Object angle: {object_angle:.1f}°")
-            print(f"[Inspect] Camera offset: ({offset_x:.1f}, {offset_y:.1f}) ± {CAMERA_OFFSET_ERROR:.1f} mm")
-
             # Calculate gripper position in detection coordinates
             # Gripper needs to be at target - offset
             gripper_det_x = target_det_x - offset_x
             gripper_det_y = target_det_y - offset_y
 
-            print(f"[Inspect] Gripper position (detection): ({gripper_det_x:.1f}, {gripper_det_y:.1f}) mm")
-
             # Transform gripper position to robot coordinates
             robot_x, robot_y = self.transform_detection_to_robot(gripper_det_x, gripper_det_y)
 
+            # Check if robot position is within workspace
+            if not self.is_robot_position_safe(robot_x, robot_y):
+                print(f"\n{'='*60}")
+                print(f"[Inspect] ❌ POSITION OUT OF BOUNDS")
+                print(f"[Inspect] Robot position: ({robot_x:.1f}, {robot_y:.1f}) mm")
+                print(f"[Inspect] Workspace limits: X=[{ROBOT_MIN_X:.1f}-{ROBOT_MAX_X:.1f}], Y=[{ROBOT_MIN_Y:.1f}-{ROBOT_MAX_Y:.1f}]")
+                print(f"[Inspect] Cannot proceed - position outside robot workspace!")
+                print(f"{'='*60}\n")
+                return False
+
+            # Calculate optimal camera viewing angle
+            camera_angle = self.calculate_optimal_inspect_angle(object_angle)
+
+            print(f"\n{'='*60}")
+            print(f"[Inspect] INSPECTION SEQUENCE START")
+            print(f"[Inspect] Target (detection): ({target_det_x:.1f}, {target_det_y:.1f}) mm")
+            print(f"[Inspect] Object angle: {object_angle:.1f}° → Camera angle: {camera_angle:.1f}°")
+            print(f"[Inspect] Camera offset: ({offset_x:.1f}, {offset_y:.1f}) ± {CAMERA_OFFSET_ERROR:.1f} mm")
+            print(f"[Inspect] Gripper position (detection): ({gripper_det_x:.1f}, {gripper_det_y:.1f}) mm")
             print(f"[Inspect] Gripper position (robot): ({robot_x:.1f}, {robot_y:.1f}) mm")
             print(f"[Inspect] Inspection height: {self.inspect_height} mm")
             print(f"{'='*60}")
@@ -706,7 +818,7 @@ class XArmController:
                 z=self.safe_height,
                 roll=180,
                 pitch=0,
-                yaw=object_angle,
+                yaw=camera_angle,
                 speed=self.config.get("tcp_speed", 300),
                 wait=True
             )
@@ -714,15 +826,15 @@ class XArmController:
                 print(f"[Inspect] ❌ Failed at step 1")
                 return False
 
-            # Step 2: Move to inspection position with angle matching object
-            print(f"[Inspect] Step 2/2: Moving to inspection position (angle: {object_angle:.1f}°)...")
+            # Step 2: Move to inspection position with calculated camera angle
+            print(f"[Inspect] Step 2/2: Moving to inspection position (angle: {camera_angle:.1f}°)...")
             code = self._arm.set_position(
                 x=robot_x,
                 y=robot_y,
                 z=self.inspect_height,
                 roll=180,
                 pitch=0,
-                yaw=object_angle,
+                yaw=camera_angle,
                 speed=self.config.get("tcp_speed", 300),
                 wait=True
             )
