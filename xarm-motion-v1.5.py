@@ -270,15 +270,7 @@ class XArmController:
         if not os.path.isabs(homography_file):
             base_dir = os.path.dirname(os.path.abspath(__file__))
             homography_file = os.path.join(base_dir, homography_file)
-        
-        # Remove old homography file if it exists
-        if os.path.exists(homography_file):
-            try:
-                os.remove(homography_file)
-                print(f"[Calibration] Removed old homography file")
-            except:
-                pass
-        
+
         wait_count = 0
         while not os.path.exists(homography_file):
             time.sleep(1)
