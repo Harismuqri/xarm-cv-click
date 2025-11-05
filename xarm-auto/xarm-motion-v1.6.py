@@ -268,8 +268,7 @@ class XArmController:
         
         homography_file = "homography_auto.pkl"
         if not os.path.isabs(homography_file):
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            homography_file = os.path.join(base_dir, homography_file)
+            homography_file = os.path.abspath(homography_file)
 
         wait_count = 0
         while not os.path.exists(homography_file):
@@ -289,11 +288,10 @@ class XArmController:
 
     def load_homography(self):
         """Load homography matrix for detection to robot coordinate transformation."""
-        homography_file = "homography_det_to_robot.pkl"
+        homography_file = "homography_auto.pkl"
         try:
             if not os.path.isabs(homography_file):
-                base_dir = os.path.dirname(os.path.abspath(__file__))
-                homography_file = os.path.join(base_dir, "homography_det_to_robot.pkl")
+                homography_file = os.path.abspath(homography_file)
 
             with open(homography_file, "rb") as f:
                 self.H_det_to_robot = pickle.load(f)
