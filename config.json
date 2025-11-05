@@ -5,12 +5,12 @@
     "angle_speed": 20,
     "angle_acc": 500,
     "calibration_position": {
-        "x": -100,
-        "y": 215.9,
-        "z": 174,
-        "roll": 180,
-        "pitch": 0,
-        "yaw": 0
+        "x": -95.3,
+        "y": 211.6,
+        "z": 172.1,
+        "roll": -179.6,
+        "pitch": -1.2,
+        "yaw": -1.6
     },
     "click_control": {
         "safe_height": 200,
