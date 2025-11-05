@@ -1,27 +1,54 @@
 {
     "robot_ip": "192.168.1.151",
-    "camera_index": 0,
-    "tcp_speed": 200,
+    "tcp_speed": 300,
     "tcp_acc": 2000,
     "angle_speed": 20,
     "angle_acc": 500,
-    "working_hours": {
-        "start": "08:00:00",
-        "end": "18:00:00"
-    },
-    "person_detection": {
-        "model": "mobilenet",
-        "confidence": 0.5,
-        "no_person_timeout": 5
+    "calibration_position": {
+        "x": -95.3,
+        "y": 211.6,
+        "z": 172.1,
+        "roll": -179.6,
+        "pitch": -1.2,
+        "yaw": -1.6
     },
     "click_control": {
         "safe_height": 200,
-        "pick_height": 50,
+        "pick_height": 10,
         "workspace_min_x": 0,
         "workspace_max_x": 300,
         "workspace_min_y": 0,
         "workspace_max_y": 300,
-        "coordinate_offset_x": -208,
-        "coordinate_offset_y": -148
+        "coordinate_offset_x": 0,
+        "coordinate_offset_y": -150
+    },
+    "yolo_model_path": "D:\\2. yolo\\train30\\weights\\best.pt",
+    "detection_confidence": 0.8,
+    "camera_config": {
+        "detection_camera_index": 1,
+        "inspection_camera_index": 0
+    },
+    "camera_offset": {
+        "offset_x": 92.9,
+        "offset_y": -1.35,
+        "offset_error": 0.4
+    },
+    "window_config": {
+        "detection_width": 960,
+        "detection_height": 720,
+        "detection_pos_x": 950,
+        "detection_pos_y": 50,
+        "inspection_width": 960,
+        "inspection_height": 720,
+        "inspection_pos_x": 0,
+        "inspection_pos_y": 50,
+        "calibration_width": 960,
+        "calibration_height": 720,
+        "calibration_pos_x": 480,
+        "calibration_pos_y": 180
+    },
+    "workspace": {
+        "width": 300,
+        "height": 300
     }
 }
