@@ -469,7 +469,7 @@ class InspectDataManager:
             try:
                 self.shm = shared_memory.SharedMemory(name=self.name, create=True, size=self.size)
                 print(f"[INFO] Created inspect data shared memory: {self.name}")
-                self._write_data({"inspect": False, "target_x": 0, "target_y": 0, "timestamp": 0, "processed": True})
+                self._write_data({"inspect": False, "target_x": 0, "target_y": 0, "angle": 0.0, "offset_x": CAMERA_OFFSET_X, "offset_y": CAMERA_OFFSET_Y, "timestamp": 0, "processed": True})
             except Exception as e:
                 print(f"[ERROR] Failed to create inspect shared memory: {e}")
                 raise
@@ -490,12 +490,13 @@ class InspectDataManager:
             print(f"[ERROR] Failed to write inspect data: {e}")
             return False
 
-    def write_inspect_command(self, target_x, target_y):
-        """Send inspection command with target position."""
+    def write_inspect_command(self, target_x, target_y, angle=0.0):
+        """Send inspection command with target position and object angle."""
         data = {
             "inspect": True,
             "target_x": float(target_x),
             "target_y": float(target_y),
+            "angle": float(angle),
             "offset_x": CAMERA_OFFSET_X,
             "offset_y": CAMERA_OFFSET_Y,
             "offset_error": CAMERA_OFFSET_ERROR,
@@ -503,7 +504,7 @@ class InspectDataManager:
             "processed": False
         }
         self._write_data(data)
-        print(f"[INSPECT] Inspection command sent: Target ({target_x:.1f}, {target_y:.1f}) mm")
+        print(f"[INSPECT] Inspection command sent: Target ({target_x:.1f}, {target_y:.1f}) mm - Angle: {angle:.1f}°")
         print(f"[INSPECT] Camera offset: ({CAMERA_OFFSET_X:.1f}, {CAMERA_OFFSET_Y:.1f}) ± {CAMERA_OFFSET_ERROR:.1f} mm")
 
     def cleanup(self):
@@ -1003,7 +1004,8 @@ def main():
                     print(f"\n[INSPECT MODE] Inspecting Object {selected_object['id']}")
                     inspect_manager.write_inspect_command(
                         selected_object['x_mm'],
-                        selected_object['y_mm']
+                        selected_object['y_mm'],
+                        selected_object['angle']
                     )
                 elif not cam_inspect:
                     print("[WARNING] Inspection camera not available")

@@ -124,7 +124,7 @@ class InspectDataManager:
         try:
             self.shm = shared_memory.SharedMemory(name=self.name, create=True, size=self.size)
             print(f"[INFO] Created inspect data shared memory: {self.name}")
-            initial_data = {"inspect": False, "target_x": 0, "target_y": 0, "timestamp": 0, "processed": True}
+            initial_data = {"inspect": False, "target_x": 0, "target_y": 0, "angle": 0.0, "offset_x": CAMERA_OFFSET_X, "offset_y": CAMERA_OFFSET_Y, "timestamp": 0, "processed": True}
             self._write_data(initial_data)
         except FileExistsError:
             self.shm = shared_memory.SharedMemory(name=self.name, create=False)
@@ -151,16 +151,24 @@ class InspectDataManager:
         try:
             length = struct.unpack('I', bytes(self.shm.buf[:4]))[0]
             if length == 0 or length > self.size - 4:
-                return {"inspect": False, "target_x": 0, "target_y": 0, "timestamp": 0, "processed": True}
+                return {"inspect": False, "target_x": 0, "target_y": 0, "angle": 0.0, "offset_x": CAMERA_OFFSET_X, "offset_y": CAMERA_OFFSET_Y, "timestamp": 0, "processed": True}
 
             json_bytes = bytes(self.shm.buf[4:4+length])
             json_str = json_bytes.decode('utf-8')
             data = json.loads(json_str)
 
+            # Ensure angle and offset keys exist for backward compatibility
+            if "angle" not in data:
+                data["angle"] = 0.0
+            if "offset_x" not in data:
+                data["offset_x"] = CAMERA_OFFSET_X
+            if "offset_y" not in data:
+                data["offset_y"] = CAMERA_OFFSET_Y
+
             return data
         except Exception as e:
             print(f"[ERROR] Failed to read inspect data: {e}")
-            return {"inspect": False, "target_x": 0, "target_y": 0, "timestamp": 0, "processed": True}
+            return {"inspect": False, "target_x": 0, "target_y": 0, "angle": 0.0, "offset_x": CAMERA_OFFSET_X, "offset_y": CAMERA_OFFSET_Y, "timestamp": 0, "processed": True}
 
     def read_inspect(self):
         """Read inspection command."""
@@ -497,17 +505,37 @@ class XArmController:
             print(f"{'='*60}\n")
             return False
 
-    def pick_sequence(self, det_x, det_y, object_angle=0.0):
+    def pick_sequence(self, det_x, det_y, object_angle=0.0, object_width=0.0, object_height=0.0):
         """
         Execute pick sequence with automatic gripper angle adjustment.
-        
+
         Args:
             det_x, det_y: Position in detection coordinates (mm)
             object_angle: Detected object angle in degrees (0-180)
+            object_width: Object width in mm
+            object_height: Object height in mm
         """
         try:
             # Transform to robot coordinates
             robot_x, robot_y = self.transform_detection_to_robot(det_x, det_y)
+
+            # Calculate gripper opening based on object dimensions
+            # The gripper needs to open wider than the narrower dimension of the object
+            # Gripper position: 0 = fully closed, 850 = fully open
+            # Add safety margin of 10mm
+            if object_width > 0 and object_height > 0:
+                # Use the smaller dimension (perpendicular to gripper fingers)
+                grip_dimension = min(object_width, object_height)
+                # Convert mm to gripper position (assuming ~85mm max opening at position 850)
+                # gripper_pos = (grip_dimension + 10) / 85.0 * 850
+                # Cap between 100 (min useful opening) and 850 (max opening)
+                gripper_opening = int(min(850, max(200, (grip_dimension + 15) / 85.0 * 850)))
+                print(f"[Pick] Object size: {object_width:.1f}x{object_height:.1f} mm")
+                print(f"[Pick] Calculated gripper opening: {gripper_opening} (for {grip_dimension:.1f}mm grip)")
+            else:
+                # Default opening if no object dimensions provided
+                gripper_opening = 850
+                print(f"[Pick] No object dimensions, using default gripper opening: {gripper_opening}")
 
             print(f"\n{'='*60}")
             print(f"[Pick] PICK SEQUENCE START")
@@ -528,9 +556,9 @@ class XArmController:
                 print(f"[Pick] ❌ Failed at step 1")
                 return False
 
-            # Step 2: Open gripper
-            print(f"[Pick] Step 2/4: Opening gripper...")
-            self._arm.set_gripper_position(850, wait=True)
+            # Step 2: Open gripper to calculated opening
+            print(f"[Pick] Step 2/4: Opening gripper to {gripper_opening}...")
+            self._arm.set_gripper_position(gripper_opening, wait=True)
             time.sleep(0.5)
 
             # Step 3: Move down to pick height
@@ -635,34 +663,36 @@ class XArmController:
             print(f"{'='*60}\n")
             return False
 
-    def inspect_sequence(self, target_det_x, target_det_y, offset_x=CAMERA_OFFSET_X, offset_y=CAMERA_OFFSET_Y):
+    def inspect_sequence(self, target_det_x, target_det_y, object_angle=0.0, offset_x=CAMERA_OFFSET_X, offset_y=CAMERA_OFFSET_Y):
         """
         Execute inspection sequence - move gripper so inspection camera views target.
-        
+
         The inspection camera is mounted on the gripper with an offset.
         To view the target at the camera center, we need to position the gripper
         at: gripper_position = target_position - camera_offset
-        
+
         Args:
             target_det_x, target_det_y: Target position in detection coordinates (mm)
+            object_angle: Object angle in degrees (0-180) - gripper will match this angle
             offset_x, offset_y: Camera offset from gripper center point (mm)
         """
         try:
             print(f"\n{'='*60}")
             print(f"[Inspect] INSPECTION SEQUENCE START")
             print(f"[Inspect] Target (detection): ({target_det_x:.1f}, {target_det_y:.1f}) mm")
+            print(f"[Inspect] Object angle: {object_angle:.1f}°")
             print(f"[Inspect] Camera offset: ({offset_x:.1f}, {offset_y:.1f}) ± {CAMERA_OFFSET_ERROR:.1f} mm")
-            
+
             # Calculate gripper position in detection coordinates
             # Gripper needs to be at target - offset
             gripper_det_x = target_det_x - offset_x
             gripper_det_y = target_det_y - offset_y
-            
+
             print(f"[Inspect] Gripper position (detection): ({gripper_det_x:.1f}, {gripper_det_y:.1f}) mm")
-            
+
             # Transform gripper position to robot coordinates
             robot_x, robot_y = self.transform_detection_to_robot(gripper_det_x, gripper_det_y)
-            
+
             print(f"[Inspect] Gripper position (robot): ({robot_x:.1f}, {robot_y:.1f}) mm")
             print(f"[Inspect] Inspection height: {self.inspect_height} mm")
             print(f"{'='*60}")
@@ -676,7 +706,7 @@ class XArmController:
                 z=self.safe_height,
                 roll=180,
                 pitch=0,
-                yaw=0,
+                yaw=object_angle,
                 speed=self.config.get("tcp_speed", 300),
                 wait=True
             )
@@ -684,15 +714,15 @@ class XArmController:
                 print(f"[Inspect] ❌ Failed at step 1")
                 return False
 
-            # Step 2: Move to inspection position
-            print(f"[Inspect] Step 2/2: Moving to inspection position...")
+            # Step 2: Move to inspection position with angle matching object
+            print(f"[Inspect] Step 2/2: Moving to inspection position (angle: {object_angle:.1f}°)...")
             code = self._arm.set_position(
                 x=robot_x,
                 y=robot_y,
                 z=self.inspect_height,
                 roll=180,
                 pitch=0,
-                yaw=0,
+                yaw=object_angle,
                 speed=self.config.get("tcp_speed", 300),
                 wait=True
             )
@@ -825,7 +855,7 @@ class XArmClickController:
             
         elif button == "middle":
             print(f"[INFO] Executing pick sequence with auto-angle (object angle: {angle:.1f}°)...")
-            success = self.arm.pick_sequence(x, y, object_angle=angle)
+            success = self.arm.pick_sequence(x, y, object_angle=angle, object_width=width, object_height=height)
             if success:
                 self.last_picked_angle = angle  # Store for place operation
                 
@@ -848,6 +878,7 @@ class XArmClickController:
         """Process inspection command."""
         target_x = inspect_data.get("target_x", 0)
         target_y = inspect_data.get("target_y", 0)
+        angle = inspect_data.get("angle", 0.0)
         offset_x = inspect_data.get("offset_x", CAMERA_OFFSET_X)
         offset_y = inspect_data.get("offset_y", CAMERA_OFFSET_Y)
         timestamp = inspect_data.get("timestamp", 0)
@@ -856,7 +887,7 @@ class XArmClickController:
         if timestamp <= self.last_processed_inspect_time:
             return
 
-        print(f"\n[INSPECT COMMAND] Target: ({target_x:.1f}, {target_y:.1f}) mm")
+        print(f"\n[INSPECT COMMAND] Target: ({target_x:.1f}, {target_y:.1f}) mm - Angle: {angle:.1f}°")
 
         # Check if target position is safe
         if not self.is_position_safe(target_x, target_y):
@@ -869,9 +900,9 @@ class XArmClickController:
         # Check and recover from any errors
         self.arm.check_and_recover()
 
-        # Execute inspection sequence
+        # Execute inspection sequence with object angle
         print("[INFO] Executing inspection sequence...")
-        success = self.arm.inspect_sequence(target_x, target_y, offset_x, offset_y)
+        success = self.arm.inspect_sequence(target_x, target_y, object_angle=angle, offset_x=offset_x, offset_y=offset_y)
 
         if success:
             print("[SUCCESS] Inspection position reached!")
