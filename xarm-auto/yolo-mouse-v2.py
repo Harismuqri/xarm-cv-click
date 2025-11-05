@@ -662,26 +662,79 @@ def main():
         cam_inspect.AcquisitionMode.SetValue(PySpin.AcquisitionMode_Continuous)
         cam_inspect.BeginAcquisition()
 
-    # Get initial frame for calibration
-    image = cam_detect.GetNextImage()
-    frame = convert_pyspin_image_to_cv2(image)
-    image.Release()
+    # Check if homography files already exist
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    homography_auto_file = os.path.join(script_dir, "homography_auto.pkl")
+    homography_det_file = os.path.join(script_dir, "homography_det_to_robot.pkl")
 
-    H = auto_calibrate_homography(frame)
+    H = None
+
+    # Try to load existing homography file
+    if os.path.exists(homography_auto_file):
+        try:
+            with open(homography_auto_file, "rb") as f:
+                H = pickle.load(f)
+            print(f"[INFO] Loaded existing homography from: {homography_auto_file}")
+
+            # Check if det_to_robot file also exists
+            if os.path.exists(homography_det_file):
+                print(f"[INFO] Found existing det-to-robot transformation: {homography_det_file}")
+            else:
+                print(f"[WARNING] Missing {homography_det_file} - will be created from calibration data")
+                # Create the second transformation
+                detection_corners = np.array([
+                    [0, 0], [WORKSPACE_WIDTH, 0],
+                    [WORKSPACE_WIDTH, WORKSPACE_HEIGHT], [0, WORKSPACE_HEIGHT]
+                ], dtype=np.float32)
+                robot_corners = np.array([
+                    [88.9, 312], [88.9, 14.7],
+                    [382, 14.7], [382, 312]
+                ], dtype=np.float32)
+                H_det_to_robot, _ = cv2.findHomography(detection_corners, robot_corners)
+                with open(homography_det_file, "wb") as f:
+                    pickle.dump(H_det_to_robot, f)
+                print(f"[INFO] Created missing det-to-robot transformation file")
+        except Exception as e:
+            print(f"[WARNING] Failed to load existing homography: {e}")
+            print("[INFO] Will attempt auto-calibration instead")
+            H = None
+
+    # If no existing file or failed to load, try auto-calibration
     if H is None:
-        print("[ERROR] Failed to compute homography. Exiting.")
-        cam_detect.EndAcquisition()
-        cam_detect.DeInit()
-        if cam_inspect:
-            cam_inspect.EndAcquisition()
-            cam_inspect.DeInit()
-        del cam_detect
-        if cam_inspect:
-            del cam_inspect
-        cam_list.Clear()
-        system.ReleaseInstance()
-        shm_manager.cleanup()
-        return
+        print("[INFO] No existing calibration found. Attempting auto-calibration...")
+        print("[INFO] Please ensure 4 white calibration circles are visible in the camera view")
+
+        # Get initial frame for calibration
+        image = cam_detect.GetNextImage()
+        frame = convert_pyspin_image_to_cv2(image)
+        image.Release()
+
+        H = auto_calibrate_homography(frame)
+
+        if H is None:
+            print("\n" + "="*60)
+            print("[ERROR] CALIBRATION FAILED")
+            print("="*60)
+            print("Calibration requires 4 white circles in the camera view.")
+            print("\nTo fix this, you can either:")
+            print("1. Place 4 white calibration circles (20-30mm diameter) at workspace corners")
+            print("2. Copy existing calibration files to this folder:")
+            print(f"   - {homography_auto_file}")
+            print(f"   - {homography_det_file}")
+            print("="*60 + "\n")
+
+            cam_detect.EndAcquisition()
+            cam_detect.DeInit()
+            if cam_inspect:
+                cam_inspect.EndAcquisition()
+                cam_inspect.DeInit()
+            del cam_detect
+            if cam_inspect:
+                del cam_inspect
+            cam_list.Clear()
+            system.ReleaseInstance()
+            shm_manager.cleanup()
+            return
 
     H_inv = np.linalg.inv(H)
 
