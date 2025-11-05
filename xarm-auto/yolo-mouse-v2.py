@@ -575,9 +575,10 @@ def auto_calibrate_homography(frame):
 
             H, _ = cv2.findHomography(sorted_img_pts, real_pts)
             if H is not None:
-                with open("homography_auto.pkl", "wb") as f:
+                homography_file = os.path.abspath("homography_auto.pkl")
+                with open(homography_file, "wb") as f:
                     pickle.dump(H, f)
-                print("[INFO] Homography calibrated and saved as 'homography_auto.pkl'")
+                print(f"[INFO] Homography calibrated and saved as '{homography_file}'")
                 return H
 
     print("[WARNING] Not enough valid circles detected for calibration.")
