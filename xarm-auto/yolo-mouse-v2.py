@@ -575,10 +575,40 @@ def auto_calibrate_homography(frame):
 
             H, _ = cv2.findHomography(sorted_img_pts, real_pts)
             if H is not None:
-                homography_file = os.path.abspath("homography_auto.pkl")
-                with open(homography_file, "wb") as f:
+                # Get script directory
+                script_dir = os.path.dirname(os.path.abspath(__file__))
+
+                # Save homography_auto.pkl (camera → detection workspace)
+                homography_auto_file = os.path.join(script_dir, "homography_auto.pkl")
+                with open(homography_auto_file, "wb") as f:
                     pickle.dump(H, f)
-                print(f"[INFO] Homography calibrated and saved as '{homography_file}'")
+                print(f"[INFO] Homography calibrated and saved as '{homography_auto_file}'")
+
+                # Auto-create homography_det_to_robot.pkl (detection workspace → robot coordinates)
+                # Detection workspace corners (0-300mm)
+                detection_corners = np.array([
+                    [0, 0],         # BL - Bottom Left
+                    [WORKSPACE_WIDTH, 0],      # BR - Bottom Right
+                    [WORKSPACE_WIDTH, WORKSPACE_HEIGHT],  # TR - Top Right
+                    [0, WORKSPACE_HEIGHT]      # TL - Top Left
+                ], dtype=np.float32)
+
+                # Robot coordinates (actual measured positions in mm)
+                robot_corners = np.array([
+                    [88.9, 312],    # BL - Bottom Left
+                    [88.9, 14.7],   # BR - Bottom Right
+                    [382, 14.7],    # TR - Top Right
+                    [382, 312]      # TL - Top Left
+                ], dtype=np.float32)
+
+                # Create second transformation matrix
+                H_det_to_robot, _ = cv2.findHomography(detection_corners, robot_corners)
+                homography_det_file = os.path.join(script_dir, "homography_det_to_robot.pkl")
+                with open(homography_det_file, "wb") as f:
+                    pickle.dump(H_det_to_robot, f)
+                print(f"[INFO] Detection-to-robot transformation saved as '{homography_det_file}'")
+                print("[INFO] Two-step calibration complete: Camera → Workspace → Robot")
+
                 return H
 
     print("[WARNING] Not enough valid circles detected for calibration.")

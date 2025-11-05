@@ -262,21 +262,23 @@ class XArmController:
         """Wait for YOLO calibration to complete by checking for homography file."""
         print("\n" + "="*60)
         print("[Calibration] Waiting for YOLO camera calibration...")
-        print("[Calibration] Please run yolo-mouse-v1.9.py now")
+        print("[Calibration] Please run yolo-mouse-v2.py now")
         print("[Calibration] Robot will remain at calibration position")
         print("="*60)
-        
-        homography_file = "homography_auto.pkl"
-        if not os.path.isabs(homography_file):
-            homography_file = os.path.abspath(homography_file)
 
-        # Remove old homography file if it exists
-        if os.path.exists(homography_file):
-            try:
-                os.remove(homography_file)
-                print(f"[Calibration] Removed old homography file")
-            except Exception as e:
-                print(f"[Calibration] Could not remove old file: {e}")
+        # Look for files in script directory
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        homography_file = os.path.join(script_dir, "homography_auto.pkl")
+        det_to_robot_file = os.path.join(script_dir, "homography_det_to_robot.pkl")
+
+        # Remove old homography files if they exist
+        for file_path in [homography_file, det_to_robot_file]:
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                    print(f"[Calibration] Removed old file: {os.path.basename(file_path)}")
+                except Exception as e:
+                    print(f"[Calibration] Could not remove old file: {e}")
 
         wait_count = 0
         while not os.path.exists(homography_file):
@@ -284,8 +286,8 @@ class XArmController:
             wait_count += 1
             if wait_count % 5 == 0:
                 print(f"[Calibration] Still waiting... ({wait_count}s)")
-        
-        # Give it a moment to ensure file is fully written
+
+        # Give it a moment to ensure both files are fully written
         time.sleep(1)
         
         print("\n" + "="*60)
@@ -295,30 +297,53 @@ class XArmController:
         print("="*60 + "\n")
 
     def load_homography(self):
-        """Load homography matrix for detection to robot coordinate transformation."""
-        homography_file = "homography_auto.pkl"
+        """Load homography matrices for two-step coordinate transformation."""
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        homography_auto_file = os.path.join(script_dir, "homography_auto.pkl")
+        homography_det_file = os.path.join(script_dir, "homography_det_to_robot.pkl")
+
+        self.H_auto = None
+        self.H_det_to_robot = None
+
+        # Load first transformation (camera → detection workspace)
         try:
-            if not os.path.isabs(homography_file):
-                homography_file = os.path.abspath(homography_file)
-
-            with open(homography_file, "rb") as f:
-                self.H_det_to_robot = pickle.load(f)
-
-            print(f"[Homography] ✅ Loaded coordinate transformation matrix")
-            print(f"[Homography] File: {homography_file}")
-            print(f"[Homography] This accounts for ~90° rotation between detection and robot")
+            with open(homography_auto_file, "rb") as f:
+                self.H_auto = pickle.load(f)
+            print(f"[Homography] ✅ Loaded camera-to-workspace transformation")
+            print(f"[Homography] File: {homography_auto_file}")
         except FileNotFoundError:
-            print(f"[Homography] ⚠️  {homography_file} not found - will be created after calibration")
+            print(f"[Homography] ⚠️  {homography_auto_file} not found - will be created after calibration")
         except Exception as e:
-            print(f"[Homography] ⚠️  Could not load: {e}")
+            print(f"[Homography] ⚠️  Could not load camera-to-workspace: {e}")
+
+        # Load second transformation (detection workspace → robot coordinates)
+        try:
+            with open(homography_det_file, "rb") as f:
+                self.H_det_to_robot = pickle.load(f)
+            print(f"[Homography] ✅ Loaded workspace-to-robot transformation")
+            print(f"[Homography] File: {homography_det_file}")
+        except FileNotFoundError:
+            print(f"[Homography] ⚠️  {homography_det_file} not found - will be created after calibration")
+        except Exception as e:
+            print(f"[Homography] ⚠️  Could not load workspace-to-robot: {e}")
+
+        if self.H_auto is not None and self.H_det_to_robot is not None:
+            print(f"[Homography] Two-step transformation ready: Camera → Workspace → Robot")
+            print(f"[Homography] This accounts for ~90° rotation between detection and robot")
 
     def transform_detection_to_robot(self, det_x, det_y):
         """
-        Transform detection coordinates to robot coordinates using homography.
-        
+        Transform detection workspace coordinates to robot coordinates.
+
+        This receives workspace coordinates [0-300mm] from YOLO detection
+        and transforms them to actual robot coordinates using H_det_to_robot.
+
+        Note: YOLO already applies H_auto internally (camera pixels → workspace),
+        so this only needs to apply the second transformation (workspace → robot).
+
         Args:
-            det_x: X coordinate from detection system (mm)
-            det_y: Y coordinate from detection system (mm)
+            det_x: X coordinate from detection workspace (0-300mm)
+            det_y: Y coordinate from detection workspace (0-300mm)
 
         Returns:
             (robot_x, robot_y): Transformed coordinates in robot space (mm)
@@ -326,6 +351,7 @@ class XArmController:
         if self.H_det_to_robot is None:
             raise RuntimeError("Homography matrix not loaded! Cannot transform coordinates.")
 
+        # Transform workspace coordinates to robot coordinates
         det_pt = np.array([[det_x, det_y]], dtype=np.float32).reshape(-1, 1, 2)
         robot_pt = cv2.perspectiveTransform(det_pt, self.H_det_to_robot)
         robot_x, robot_y = robot_pt[0][0]
