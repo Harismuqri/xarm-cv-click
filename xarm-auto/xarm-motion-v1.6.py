@@ -539,7 +539,7 @@ class XArmController:
         """
         try:
             print("[Robot] Moving to home position...")
-            self._arm.set_servo_angle(angle=self.home_position, speed=100, wait=wait)
+            self._arm.set_servo_angle(angle=self.home_position, speed=80, wait=wait)
             if wait:
                 print("[Robot] ✅ Home position reached")
             else:
