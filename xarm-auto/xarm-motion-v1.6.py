@@ -432,10 +432,13 @@ class XArmController:
             print(f"[Pick Logic] Width ({object_width:.1f}mm) < Height ({object_height:.1f}mm)")
             print(f"[Pick Logic] Gripper aligns WITH object angle: {gripper_angle:.1f}°")
         else:
-            # Height is smaller - gripper should rotate 90° to grip height
-            gripper_angle = (object_angle + 90) % 180
+            # Height is smaller - gripper should rotate 90° RIGHT (subtract) to grip height
+            gripper_angle = object_angle - 90
+            # Normalize to -180 to 180 range (robot accepts negative angles)
+            if gripper_angle < -180:
+                gripper_angle += 360
             print(f"[Pick Logic] Height ({object_height:.1f}mm) < Width ({object_width:.1f}mm)")
-            print(f"[Pick Logic] Gripper rotates 90° from object: {object_angle:.1f}° → {gripper_angle:.1f}°")
+            print(f"[Pick Logic] Gripper rotates 90° RIGHT from object: {object_angle:.1f}° → {gripper_angle:.1f}°")
 
         return gripper_angle
 
@@ -651,20 +654,22 @@ class XArmController:
 
             # Calculate gripper opening based on object dimensions
             # The gripper needs to open wider than the narrower dimension of the object
-            # Gripper position: 0 = fully closed, 850 = fully open
+            # Modbus gripper position: 0% = fully closed, 100% = fully open (~85mm)
             # Add safety margin of 15mm
             if object_width > 0 and object_height > 0:
                 # Use the smaller dimension (perpendicular to gripper fingers)
                 grip_dimension = min(object_width, object_height)
-                # Convert mm to gripper position (assuming ~85mm max opening at position 850)
-                # Cap between 200 (min useful opening) and 850 (max opening)
-                gripper_opening = int(min(850, max(200, (grip_dimension + 15) / 85.0 * 850)))
+                # Convert mm to gripper percentage (modbus gripper uses 0-100%)
+                # Assuming ~85mm max opening at 100%
+                # Cap between 20% (min useful opening) and 100% (max opening)
+                gripper_percentage = (grip_dimension + 15) / 85.0 * 100
+                gripper_opening = int(min(100, max(20, gripper_percentage)))
                 print(f"[Pick] Object size: {object_width:.1f}x{object_height:.1f} mm")
-                print(f"[Pick] Calculated gripper opening: {gripper_opening} (for {grip_dimension:.1f}mm grip)")
+                print(f"[Pick] Calculated gripper opening: {gripper_opening}% (for {grip_dimension:.1f}mm grip)")
             else:
                 # Default opening if no object dimensions provided
-                gripper_opening = 850
-                print(f"[Pick] No object dimensions, using default gripper opening: {gripper_opening}")
+                gripper_opening = 100
+                print(f"[Pick] No object dimensions, using default gripper opening: {gripper_opening}%")
 
             print(f"\n{'='*60}")
             print(f"[Pick] PICK SEQUENCE START")
@@ -781,7 +786,7 @@ class XArmController:
 
             # Step 3: Open gripper
             print(f"[Place] Step 3/4: Opening gripper...")
-            self._arm.set_gripper_position(850, wait=True)
+            self._arm.set_gripper_position(100, wait=True)  # 100% open (modbus gripper)
             time.sleep(0.5)
 
             # Step 4: Return to safe height
