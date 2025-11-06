@@ -1121,7 +1121,7 @@ def main():
     print("\nSTARTUP SEQUENCE:")
     print("  1. Robot connects and initializes")
     print("  2. Robot moves to calibration position")
-    print("  3. Waits for YOLO camera calibration (run yolo-mouse-v1.9.py)")
+    print("  3. Waits for YOLO camera calibration (run yolo-mouse-v2.py)")
     print("  4. Robot moves to home position")
     print("  5. Ready to receive commands")
     print("\nCOMMAND MODES:")
