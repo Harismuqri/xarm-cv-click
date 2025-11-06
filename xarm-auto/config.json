@@ -5,16 +5,17 @@
     "angle_speed": 20,
     "angle_acc": 500,
     "calibration_position": {
-        "x": -95.3,
-        "y": 211.6,
-        "z": 172.1,
-        "roll": -179.6,
-        "pitch": -1.2,
-        "yaw": -1.6
+        "x": -100,
+        "y": 215.9,
+        "z": 174,
+        "roll": 180,
+        "pitch": 0,
+        "yaw": 0
     },
     "click_control": {
         "safe_height": 150,
         "pick_height": -5,
+        "inspection_height": 111.9,
         "workspace_min_x": 0,
         "workspace_max_x": 300,
         "workspace_min_y": 0,
@@ -31,7 +32,8 @@
     "camera_offset": {
         "offset_x": 92.9,
         "offset_y": -1.35,
-        "offset_error": 0.4
+        "offset_error": 0.4,
+        "inspection_angle_offset": 90
     },
     "window_config": {
         "detection_width": 960,

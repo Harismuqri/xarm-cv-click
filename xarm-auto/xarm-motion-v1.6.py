@@ -210,9 +210,10 @@ class XArmController:
         click_config = self.config.get("click_control", {})
         self.safe_height = click_config.get("safe_height", 200)
         self.pick_height = click_config.get("pick_height", 50)
+        self.inspection_height = click_config.get("inspection_height", 111.9)
 
         # Inspection height (Z offset of camera from workspace)
-        self.inspect_height = 111.9  # mm - actual camera Z position
+        self.inspect_height = self.inspection_height  # mm - actual camera Z position
 
         # Load homography matrix for coordinate transformation
         self.H_det_to_robot = None
@@ -442,18 +443,34 @@ class XArmController:
         """
         Calculate the optimal camera viewing angle for inspection.
 
-        For best inspection, camera should view object from perpendicular angle.
+        The camera is mounted on the robot with an angular offset from the gripper.
+        To properly view the object, we need to rotate the robot by:
+        robot_yaw = object_angle + camera_mounting_offset
 
         Args:
             object_angle: Detected object angle in degrees (0-180)
 
         Returns:
             float: Optimal camera yaw angle in degrees
+            
+        Calculation Process:
+        1. Object detected at angle (e.g., 104.7°)
+        2. Camera mounted at offset angle from gripper (e.g., 90°)
+        3. Robot yaw = object_angle + inspection_angle_offset
+        4. This rotates robot so inspection camera points at object
         """
-        # View from 90° offset for better side view of object features
-        inspect_angle = (object_angle + 90) % 180
+        # Get camera angle offset from config
+        camera_config = self.config.get("camera_offset", {})
+        camera_angle_offset = camera_config.get("inspection_angle_offset", 90)
+        
+        # Calculate robot yaw: align with object angle + camera offset
+        inspect_angle = (object_angle + camera_angle_offset) % 360
+        
         print(f"[Inspect Logic] Object angle: {object_angle:.1f}°")
-        print(f"[Inspect Logic] Camera views from perpendicular: {inspect_angle:.1f}°")
+        print(f"[Inspect Logic] Camera offset: {camera_angle_offset:.1f}°")
+        print(f"[Inspect Logic] Calculated robot yaw: {inspect_angle:.1f}°")
+        print(f"[Inspect Logic] → Robot rotates to this angle so camera views object")
+        
         return inspect_angle
 
     def connect_robot(self):
