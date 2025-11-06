@@ -996,11 +996,12 @@ class XArmClickController:
         print("="*60)
         print("Mouse Button Controls:")
         print("  • LEFT CLICK   → Move to position")
-        print("  • MIDDLE CLICK → Inspection mode")
         print("  • RIGHT CLICK  → Pick/Place TOGGLE")
         print("    - First click:  PICK object")
         print("    - Second click: PLACE object")
         print("    - Third click:  PICK again (repeats)")
+        print("\nKeyboard Controls:")
+        print("  • 'T' KEY → Inspect selected object")
         print("\nNote: You MUST place before you can pick again!")
         print(f"\nInspection:")
         print(f"  • Camera offset: ({CAMERA_OFFSET_X:.1f}, {CAMERA_OFFSET_Y:.1f}) ± {CAMERA_OFFSET_ERROR:.1f} mm")
@@ -1055,11 +1056,9 @@ class XArmClickController:
             success = self.arm.move_to_position(x, y)
 
         elif button == "middle":
-            # Middle button = Inspection
-            print(f"[INFO] Triggering inspection mode...")
-            # Send inspection command via shared memory
-            self.inspect_manager.write_inspect_command(x, y, angle)
-            success = True  # Inspection command sent
+            # Middle button = (unused - reserved for future features)
+            print(f"[INFO] Middle click not assigned (use 'T' key for inspection)")
+            success = True
 
         elif button == "right":
             # Right button = Pick/Place toggle
