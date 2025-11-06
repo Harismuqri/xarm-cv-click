@@ -1,3 +1,8 @@
+"""
+YOLO Detection System with Dual Camera Support
+Left Click = Move, Right Click = Pick/Place Toggle, T Key = Inspection
+"""
+
 import cv2
 import numpy as np
 import pickle

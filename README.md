@@ -140,17 +140,23 @@ This system provides:
 
 **Detection Window:**
 - **Left Click**: Move robot to clicked position
-- **Middle Click**: Pick object at clicked position
-  - Auto-calculates optimal gripper angle
-  - Grips narrower dimension (width or height)
-- **Right Click**: Place object at clicked position
-  - Maintains angle from pick operation
+- **Right Click**: Pick/Place **TOGGLE** (single button for both operations)
+  - **First right-click**: PICK object
+    - Auto-calculates optimal gripper angle
+    - Grips narrower dimension (width or height)
+    - Must complete before next pick
+  - **Second right-click**: PLACE object
+    - Places straight down without rotation
+    - Resets state for next pick
+  - **Third right-click**: PICK again (cycle repeats)
 - **T Key**: Inspect at clicked position
   - Positions inspection camera to view exact clicked location
   - Uses object angle for camera orientation
 
 **Keyboard:**
 - **Q Key**: Quit both camera windows and exit system
+
+**Note**: You **MUST** place before you can pick again! The system enforces the pick/place cycle.
 
 ### Workflow Example
 
@@ -162,20 +168,24 @@ This system provides:
      - Object angle, width, height
      - "Press 'T' to inspect clicked position"
 
-2. **Middle-click to pick**
+2. **Right-click object to PICK**
    - Robot analyzes: width=50mm, height=30mm
-   - Decision: Height < Width → Rotate 90° from object angle
+   - Decision: Height < Width → Rotate 90° RIGHT from object angle
    - Grips along the 30mm dimension for better control
-   - Stores angle for place operation
+   - Console: `[STATE] ✅ Object picked! Next right-click will PLACE.`
 
-3. **Press 'T' to inspect**
+3. **Press 'T' to inspect** (optional)
    - Robot moves inspection camera to view clicked position
    - NOT the object center - views exactly where you clicked
    - Camera rotates perpendicular to object angle
 
-4. **Right-click to place**
-   - Robot maintains the angle from pick operation
-   - Places object at new location with same orientation
+4. **Right-click destination to PLACE**
+   - Robot places straight down without rotation
+   - Simple drop at destination location
+   - Console: `[STATE] ✅ Object placed! Next right-click will PICK.`
+
+5. **Right-click another object to PICK** (cycle repeats)
+   - Ready to pick the next object
 
 ## Coordinate System
 
@@ -308,31 +318,35 @@ def inspect_sequence(target_det_x, target_det_y, object_angle):
 5. Mark as processed
 ```
 
-**2. Middle Click (Pick)**
+**2. Right Click - First Time (Pick)**
 ```
-1. Transform click → robot coordinates
-2. Validate workspace boundaries
-3. Calculate optimal gripper angle
-4. Move to safe height above target
-5. Rotate to gripper angle
-6. Descend to pick height (-5mm)
+1. Check pick/place state (must not be holding object)
+2. Transform click → robot coordinates
+3. Validate workspace boundaries
+4. Calculate optimal gripper angle (grips narrower dimension)
+5. Move to safe height above target
+6. Rotate to gripper angle (90° RIGHT if height < width)
+7. Descend to pick height (-5mm)
 7. Close gripper
 8. Update TCP load (object weight)
 9. Lift to safe height
 10. Store angle for place operation
 ```
 
-**3. Right Click (Place)**
+**3. Right Click - Second Time (Place)**
 ```
-1. Transform click → robot coordinates
-2. Validate workspace boundaries
-3. Move to safe height above target
-4. Maintain angle from pick
-5. Descend to pick height
+1. Check pick/place state (must be holding object)
+2. Transform click → robot coordinates
+3. Validate workspace boundaries
+4. Move to safe height above target (yaw=0, straight down)
+5. Descend to place height (-5mm)
 6. Open gripper
-7. Reset TCP load
+7. Reset TCP load (empty gripper weight)
 8. Retract to safe height
+9. Reset pick/place state (ready for next pick)
 ```
+
+**Note**: Place does NOT rotate - places straight down without maintaining pick angle
 
 **4. T Key (Inspect)**
 ```
@@ -511,13 +525,22 @@ xarm-cv-click/
 
 ## Version History
 
-### Latest Updates (v1.6 / v2.0)
+### Latest Updates (v1.6 / v2.0) - Current Version
+- **Pick/Place Toggle**: Single button (right-click) for both pick and place operations
+  - First right-click: PICK object
+  - Second right-click: PLACE object
+  - State enforcement prevents double-pick
+- **Place Straight Down**: Place operation no longer rotates (yaw=0)
+- **Lite6 Gripper Fix**: Fixed gripper commands to use Lite6 API instead of modbus
+- **Rotation Direction Fix**: Gripper now rotates RIGHT (-90°) instead of LEFT (+90°)
+- **Clean Ctrl+C Shutdown**: No more traceback when pressing Ctrl+C
+- **T Key Inspection**: Inspection via 'T' key (middle click unused/reserved)
 - **Click-to-Inspect**: Inspect at clicked position instead of object center
 - **Updated Calibration Position**: Tuned for optimal camera view
 - **Config Updates**: Refined heights and camera indices
 - **Enhanced Info Panel**: Shows both center and clicked positions
 
-### v1.6 / v2.0
+### v1.6 / v2.0 Core Features
 - Dual camera system with inspection support
 - Two-step homography transformation
 - Auto-calibration with file monitoring
