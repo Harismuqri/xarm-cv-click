@@ -225,9 +225,9 @@ class XArmController:
 
         # Load heights from config
         click_config = self.config.get("click_control", {})
-        self.safe_height = click_config.get("safe_height", 200)
-        self.pick_height = click_config.get("pick_height", 50)
-        self.inspection_height = click_config.get("inspection_height", 111.9)
+        self.safe_height = click_config.get("safe_height", 150)
+        self.pick_height = click_config.get("pick_height", -5)
+        self.inspection_height = click_config.get("inspection_height", 103.4)
 
         # Inspection height (Z offset of camera from workspace)
         self.inspect_height = self.inspection_height  # mm - actual camera Z position
@@ -277,12 +277,12 @@ class XArmController:
             return {
                 "robot_ip": "192.168.1.151",
                 "tcp_speed": 300,
-                "tcp_acc": 2000,
+                "tcp_acc": 1000,
                 "angle_speed": 20,
                 "angle_acc": 500,
                 "click_control": {
-                    "safe_height": 200,
-                    "pick_height": 10,
+                    "safe_height": 150,
+                    "pick_height": -5,
                     "workspace_min_x": 0,
                     "workspace_max_x": 300,
                     "workspace_min_y": 0,
