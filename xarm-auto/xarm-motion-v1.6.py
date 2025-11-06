@@ -186,6 +186,23 @@ class InspectDataManager:
         data["processed"] = True
         self._write_data(data)
 
+    def write_inspect_command(self, target_x, target_y, angle=0.0):
+        """Send inspection command with target position and object angle."""
+        data = {
+            "inspect": True,
+            "target_x": float(target_x),
+            "target_y": float(target_y),
+            "angle": float(angle),
+            "offset_x": CAMERA_OFFSET_X,
+            "offset_y": CAMERA_OFFSET_Y,
+            "offset_error": CAMERA_OFFSET_ERROR,
+            "timestamp": time.time(),
+            "processed": False
+        }
+        self._write_data(data)
+        print(f"[INSPECT] Inspection command sent: Target ({target_x:.1f}, {target_y:.1f}) mm - Angle: {angle:.1f}°")
+        print(f"[INSPECT] Camera offset: ({CAMERA_OFFSET_X:.1f}, {CAMERA_OFFSET_Y:.1f}) ± {CAMERA_OFFSET_ERROR:.1f} mm")
+
     def cleanup(self):
         """Close and unlink shared memory."""
         if self.shm:
@@ -954,7 +971,12 @@ class XArmClickController:
         self.emergency_stop = False
         self.last_processed_click_time = 0
         self.last_processed_inspect_time = 0
+
+        # Pick/Place toggle state
+        self.has_picked = False  # Track whether robot has picked an object
         self.last_picked_angle = 0.0  # Store angle from last pick for place operation
+        self.last_picked_x = 0.0  # Store pick position for place
+        self.last_picked_y = 0.0
 
         # Workspace limits
         click_config = self.arm.config.get("click_control", {})
@@ -964,14 +986,17 @@ class XArmClickController:
         self.workspace_max_y = click_config.get("workspace_max_y", 300)
 
         print("\n" + "="*60)
-        print("xArm CONTROLLER - CLICK + INSPECTION MODE")
+        print("xArm CONTROLLER - PICK/PLACE TOGGLE + INSPECTION MODE")
         print("="*60)
         print("Mouse Button Controls:")
         print("  • LEFT CLICK   → Move to position")
-        print("  • MIDDLE CLICK → Pick sequence (auto-adjusts gripper angle)")
-        print("  • RIGHT CLICK  → Place sequence (maintains gripper angle)")
-        print("\nInspection Mode:")
-        print("  • Press 'T' key → Inspect selected object")
+        print("  • MIDDLE CLICK → Inspection mode")
+        print("  • RIGHT CLICK  → Pick/Place TOGGLE")
+        print("    - First click:  PICK object")
+        print("    - Second click: PLACE object")
+        print("    - Third click:  PICK again (repeats)")
+        print("\nNote: You MUST place before you can pick again!")
+        print(f"\nInspection:")
         print(f"  • Camera offset: ({CAMERA_OFFSET_X:.1f}, {CAMERA_OFFSET_Y:.1f}) ± {CAMERA_OFFSET_ERROR:.1f} mm")
         print(f"\nWorkspace: X=[{self.workspace_min_x}-{self.workspace_max_x}], "
               f"Y=[{self.workspace_min_y}-{self.workspace_max_y}]")
@@ -1022,16 +1047,33 @@ class XArmClickController:
         if button == "left":
             print("[INFO] Moving arm to clicked position...")
             success = self.arm.move_to_position(x, y)
-            
+
         elif button == "middle":
-            print(f"[INFO] Executing pick sequence with auto-angle (object angle: {angle:.1f}°)...")
-            success = self.arm.pick_sequence(x, y, object_angle=angle, object_width=width, object_height=height)
-            if success:
-                self.last_picked_angle = angle  # Store for place operation
-                
+            # Middle button = Inspection
+            print(f"[INFO] Triggering inspection mode...")
+            # Send inspection command via shared memory
+            self.inspect_manager.write_inspect_command(x, y, angle)
+            success = True  # Inspection command sent
+
         elif button == "right":
-            print(f"[INFO] Executing place sequence (maintaining angle: {self.last_picked_angle:.1f}°)...")
-            success = self.arm.place_sequence(x, y, maintain_angle=True, object_angle=self.last_picked_angle)
+            # Right button = Pick/Place toggle
+            if not self.has_picked:
+                # First right-click: PICK
+                print(f"[INFO] Executing PICK sequence (object angle: {angle:.1f}°)...")
+                success = self.arm.pick_sequence(x, y, object_angle=angle, object_width=width, object_height=height)
+                if success:
+                    self.has_picked = True
+                    self.last_picked_angle = angle
+                    self.last_picked_x = x
+                    self.last_picked_y = y
+                    print(f"[STATE] ✅ Object picked! Next right-click will PLACE.")
+            else:
+                # Second right-click: PLACE
+                print(f"[INFO] Executing PLACE sequence (maintaining angle: {self.last_picked_angle:.1f}°)...")
+                success = self.arm.place_sequence(x, y, maintain_angle=True, object_angle=self.last_picked_angle)
+                if success:
+                    self.has_picked = False
+                    print(f"[STATE] ✅ Object placed! Next right-click will PICK.")
         else:
             print(f"[WARNING] Unknown button: {button}")
 
