@@ -13,8 +13,8 @@
         "yaw": 0
     },
     "click_control": {
-        "safe_height": 200,
-        "pick_height": 10,
+        "safe_height": 100,
+        "pick_height": -5,
         "workspace_min_x": 0,
         "workspace_max_x": 300,
         "workspace_min_y": 0,
@@ -25,8 +25,8 @@
     "yolo_model_path": "D:\\2. yolo\\train30\\weights\\best.pt",
     "detection_confidence": 0.8,
     "camera_config": {
-        "detection_camera_index": 1,
-        "inspection_camera_index": 0
+        "detection_camera_index": 0,
+        "inspection_camera_index": 1
     },
     "camera_offset": {
         "offset_x": 92.9,
