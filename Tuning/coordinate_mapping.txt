@@ -1,0 +1,19 @@
+COORDINATE MAPPING RESULTS
+======================================================================
+
+Robot X+ moves visually: UP
+Robot Y+ moves visually: LEFT
+
+RECOMMENDED CODE:
+
+if key == 'up':
+    self.move_relative(dx=self.step_size)
+
+elif key == 'down':
+    self.move_relative(dx=-self.step_size)
+
+elif key == 'left':
+    self.move_relative(dy=self.step_size)
+
+elif key == 'right':
+    self.move_relative(dy=-self.step_size)
