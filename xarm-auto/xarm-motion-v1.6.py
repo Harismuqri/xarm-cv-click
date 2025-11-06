@@ -652,24 +652,9 @@ class XArmController:
             # Calculate optimal gripper angle based on object dimensions
             gripper_angle = self.calculate_optimal_pick_angle(object_angle, object_width, object_height)
 
-            # Calculate gripper opening based on object dimensions
-            # The gripper needs to open wider than the narrower dimension of the object
-            # Modbus gripper position: 0% = fully closed, 100% = fully open (~85mm)
-            # Add safety margin of 15mm
+            # Note: Lite6 gripper uses simple open/close commands (no position control)
             if object_width > 0 and object_height > 0:
-                # Use the smaller dimension (perpendicular to gripper fingers)
-                grip_dimension = min(object_width, object_height)
-                # Convert mm to gripper percentage (modbus gripper uses 0-100%)
-                # Assuming ~85mm max opening at 100%
-                # Cap between 20% (min useful opening) and 100% (max opening)
-                gripper_percentage = (grip_dimension + 15) / 85.0 * 100
-                gripper_opening = int(min(100, max(20, gripper_percentage)))
                 print(f"[Pick] Object size: {object_width:.1f}x{object_height:.1f} mm")
-                print(f"[Pick] Calculated gripper opening: {gripper_opening}% (for {grip_dimension:.1f}mm grip)")
-            else:
-                # Default opening if no object dimensions provided
-                gripper_opening = 100
-                print(f"[Pick] No object dimensions, using default gripper opening: {gripper_opening}%")
 
             print(f"\n{'='*60}")
             print(f"[Pick] PICK SEQUENCE START")
@@ -690,10 +675,10 @@ class XArmController:
                 print(f"[Pick] ❌ Failed at step 1")
                 return False
 
-            # Step 2: Open gripper to calculated opening
-            print(f"[Pick] Step 2/4: Opening gripper to {gripper_opening}...")
-            self._arm.set_gripper_position(gripper_opening, wait=True)
-            time.sleep(0.5)
+            # Step 2: Open gripper (Lite6 gripper - no position control, just open/close)
+            print(f"[Pick] Step 2/4: Opening gripper...")
+            self._arm.open_lite6_gripper()
+            time.sleep(1.0)
 
             # Step 3: Move down to pick height
             print(f"[Pick] Step 3/4: Moving to pick height ({self.pick_height}mm)...")
@@ -708,9 +693,13 @@ class XArmController:
                 return False
 
             # Step 4: Close gripper
-            print(f"[Pick] Step 4/4: Closing gripper...")
-            self._arm.set_gripper_position(0, wait=True)
-            time.sleep(0.5)
+            print(f"[Pick] Step 4/5: Closing gripper...")
+            self._arm.close_lite6_gripper()
+            time.sleep(1.0)
+
+            # Step 5: Update TCP load for picked object
+            print(f"[Pick] Step 5/5: Updating TCP load...")
+            self._arm.set_tcp_load(0.35, [0, 0, 40])
 
             # Return to safe height
             print(f"[Pick] Returning to safe height...")
@@ -786,17 +775,24 @@ class XArmController:
 
             # Step 3: Open gripper
             print(f"[Place] Step 3/4: Opening gripper...")
-            self._arm.set_gripper_position(100, wait=True)  # 100% open (modbus gripper)
-            time.sleep(0.5)
+            self._arm.open_lite6_gripper()
+            time.sleep(1.0)
 
-            # Step 4: Return to safe height
-            print(f"[Place] Step 4/4: Returning to safe height...")
+            # Step 4: Reset TCP load
+            print(f"[Place] Step 4/5: Resetting TCP load...")
+            self._arm.set_tcp_load(0.277, [0, 0, 30])
+
+            # Step 5: Return to safe height
+            print(f"[Place] Step 5/5: Returning to safe height...")
             code = self._arm.set_position(
                 x=robot_x, y=robot_y, z=self.safe_height,
                 roll=180, pitch=0, yaw=object_angle,
                 speed=self.config.get("tcp_speed", 300),
                 wait=True
             )
+
+            # Stop gripper
+            self._arm.stop_lite6_gripper()
 
             print(f"[Place] ✅ PLACE SEQUENCE COMPLETE")
             print(f"{'='*60}\n")
