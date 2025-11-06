@@ -743,10 +743,10 @@ class XArmController:
             print(f"{'='*60}\n")
             return False
 
-    def place_sequence(self, det_x, det_y, maintain_angle=True, object_angle=0.0):
+    def place_sequence(self, det_x, det_y, maintain_angle=False, object_angle=0.0):
         """
         Execute place sequence.
-        
+
         Args:
             det_x, det_y: Position in detection coordinates (mm)
             maintain_angle: If True, maintain the angle from pick operation
@@ -766,18 +766,24 @@ class XArmController:
                 print(f"{'='*60}\n")
                 return False
 
+            # Determine yaw angle - use 0 if not maintaining angle
+            gripper_yaw = object_angle if maintain_angle else 0.0
+
             print(f"\n{'='*60}")
             print(f"[Place] PLACE SEQUENCE START")
             print(f"[Place] Detection coords: ({det_x:.1f}, {det_y:.1f}) mm")
             print(f"[Place] Robot coords: ({robot_x:.1f}, {robot_y:.1f}) mm")
-            print(f"[Place] Placement angle: {object_angle:.1f}°")
+            if maintain_angle:
+                print(f"[Place] Maintaining angle: {gripper_yaw:.1f}°")
+            else:
+                print(f"[Place] Placing straight down (yaw: 0°)")
             print(f"{'='*60}")
 
             # Step 1: Move to safe height above target
             print(f"[Place] Step 1/4: Moving to safe height ({self.safe_height}mm)...")
             code = self._arm.set_position(
                 x=robot_x, y=robot_y, z=self.safe_height,
-                roll=180, pitch=0, yaw=object_angle,
+                roll=180, pitch=0, yaw=gripper_yaw,
                 speed=self.config.get("tcp_speed", 300),
                 wait=True
             )
@@ -789,7 +795,7 @@ class XArmController:
             print(f"[Place] Step 2/4: Moving to place height ({self.pick_height}mm)...")
             code = self._arm.set_position(
                 x=robot_x, y=robot_y, z=self.pick_height,
-                roll=180, pitch=0, yaw=object_angle,
+                roll=180, pitch=0, yaw=gripper_yaw,
                 speed=100,
                 wait=True
             )
@@ -810,7 +816,7 @@ class XArmController:
             print(f"[Place] Step 5/5: Returning to safe height...")
             code = self._arm.set_position(
                 x=robot_x, y=robot_y, z=self.safe_height,
-                roll=180, pitch=0, yaw=object_angle,
+                roll=180, pitch=0, yaw=gripper_yaw,
                 speed=self.config.get("tcp_speed", 300),
                 wait=True
             )
@@ -1069,8 +1075,8 @@ class XArmClickController:
                     print(f"[STATE] ✅ Object picked! Next right-click will PLACE.")
             else:
                 # Second right-click: PLACE
-                print(f"[INFO] Executing PLACE sequence (maintaining angle: {self.last_picked_angle:.1f}°)...")
-                success = self.arm.place_sequence(x, y, maintain_angle=True, object_angle=self.last_picked_angle)
+                print(f"[INFO] Executing PLACE sequence (straight down)...")
+                success = self.arm.place_sequence(x, y, maintain_angle=False, object_angle=self.last_picked_angle)
                 if success:
                     self.has_picked = False
                     print(f"[STATE] ✅ Object placed! Next right-click will PICK.")
