@@ -14,7 +14,7 @@
     },
     "click_control": {
         "safe_height": 150,
-        "pick_height": -5,
+        "pick_height": -2,
         "inspection_height": 103.4,
         "workspace_min_x": 0,
         "workspace_max_x": 300,
