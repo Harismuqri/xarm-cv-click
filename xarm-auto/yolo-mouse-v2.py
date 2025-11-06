@@ -125,17 +125,17 @@ def mouse_callback(event, x, y, flags, param):
     if event == cv2.EVENT_LBUTTONDOWN:
         mouse_x, mouse_y = x, y
         mouse_clicked = True
-        mouse_button = "left"  # Move
+        mouse_button = "left"  # Move to position
         show_coordinates = True
     elif event == cv2.EVENT_MBUTTONDOWN:
         mouse_x, mouse_y = x, y
         mouse_clicked = True
-        mouse_button = "middle"  # Pick
+        mouse_button = "middle"  # Unused (reserved for future features)
         show_coordinates = True
     elif event == cv2.EVENT_RBUTTONDOWN:
         mouse_x, mouse_y = x, y
         mouse_clicked = True
-        mouse_button = "right"  # Place
+        mouse_button = "right"  # Pick/Place toggle
         show_coordinates = True
 
 def convert_pyspin_image_to_cv2(image):
@@ -443,7 +443,7 @@ class ClickDataManager:
             "processed": False
         }
         self._write_data(data)
-        button_action = {"left": "MOVE", "middle": "PICK", "right": "PLACE"}
+        button_action = {"left": "MOVE", "middle": "UNUSED", "right": "PICK/PLACE"}
         print(f"[CLICK-{button_action.get(button, button).upper()}] Sent to robot: ({x:.1f}, {y:.1f}) mm, Angle: {angle:.1f}°, Size: {width:.1f}x{height:.1f}mm")
 
     def cleanup(self):
