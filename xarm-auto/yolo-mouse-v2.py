@@ -79,8 +79,8 @@ print(f"[Config] Camera offset: ({CAMERA_OFFSET_X:.1f}, {CAMERA_OFFSET_Y:.1f}) Â
 
 # Camera indices
 camera_config = CONFIG.get("camera_config", {})
-DETECTION_CAMERA_INDEX = camera_config.get("detection_camera_index", 1)
-INSPECTION_CAMERA_INDEX = camera_config.get("inspection_camera_index", 0)
+DETECTION_CAMERA_INDEX = camera_config.get("detection_camera_index", 0)
+INSPECTION_CAMERA_INDEX = camera_config.get("inspection_camera_index", 1)
 
 print(f"[Config] Detection camera index: {DETECTION_CAMERA_INDEX}")
 print(f"[Config] Inspection camera index: {INSPECTION_CAMERA_INDEX}")
