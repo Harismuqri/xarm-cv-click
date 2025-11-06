@@ -1,7 +1,7 @@
 {
     "robot_ip": "192.168.1.151",
     "tcp_speed": 300,
-    "tcp_acc": 2000,
+    "tcp_acc": 1000,
     "angle_speed": 20,
     "angle_acc": 500,
     "calibration_position": {
@@ -15,7 +15,7 @@
     "click_control": {
         "safe_height": 150,
         "pick_height": -5,
-        "inspection_height": 111.9,
+        "inspection_height": 130.2,
         "workspace_min_x": 0,
         "workspace_max_x": 300,
         "workspace_min_y": 0,
@@ -33,7 +33,7 @@
         "offset_x": 92.9,
         "offset_y": -1.35,
         "offset_error": 0.4,
-        "inspection_angle_offset": 90
+        "inspection_angle_offset": 180
     },
     "window_config": {
         "detection_width": 960,
