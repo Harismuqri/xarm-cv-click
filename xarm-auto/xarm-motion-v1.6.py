@@ -1116,28 +1116,6 @@ class XArmClickController:
 
 def main():
     """Main entry point."""
-    print("\n" + "="*60)
-    print("xArm ROBOT ARM CONTROLLER - WITH INSPECTION MODE")
-    print("="*60)
-    print("\nSTARTUP SEQUENCE:")
-    print("  1. Robot connects and initializes")
-    print("  2. Robot moves to calibration position")
-    print("  3. Waits for YOLO camera calibration (run yolo-mouse-v2.py)")
-    print("  4. Robot moves to home position")
-    print("  5. Ready to receive commands")
-    print("\nCOMMAND MODES:")
-    print("  • LEFT CLICK   = Move to position")
-    print("  • MIDDLE CLICK = Pick sequence (auto-adjusts gripper angle)")
-    print("  • RIGHT CLICK  = Place sequence (maintains gripper angle)")
-    print("  • T KEY        = Inspect selected object with gripper camera")
-    print("\nThe gripper will automatically align with the detected object")
-    print("orientation during pick operations!")
-    print("\nInspection camera will be positioned to view the target object")
-    print(f"using camera offset: ({CAMERA_OFFSET_X:.1f}, {CAMERA_OFFSET_Y:.1f}) ± {CAMERA_OFFSET_ERROR:.1f} mm")
-    print("="*60 + "\n")
-
-    time.sleep(2)
-
     try:
         controller = XArmClickController()
         controller.monitor_commands()
