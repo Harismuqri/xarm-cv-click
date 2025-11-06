@@ -514,12 +514,19 @@ class XArmController:
             print(f"[Robot] ❌ Initialization failed: {e}")
             raise
 
-    def go_home(self):
-        """Move robot to home position."""
+    def go_home(self, wait=True):
+        """Move robot to home position.
+
+        Args:
+            wait: If True, wait for movement to complete. If False, return immediately.
+        """
         try:
             print("[Robot] Moving to home position...")
-            self._arm.set_servo_angle(angle=self.home_position, speed=100, wait=True)
-            print("[Robot] ✅ Home position reached")
+            self._arm.set_servo_angle(angle=self.home_position, speed=100, wait=wait)
+            if wait:
+                print("[Robot] ✅ Home position reached")
+            else:
+                print("[Robot] Home position command sent (not waiting)")
             return True
         except Exception as e:
             print(f"[Robot] ❌ Failed to go home: {e}")
@@ -913,13 +920,24 @@ class XArmController:
             print(f"[Robot] Recovery check failed: {e}")
             return False
 
-    def shutdown(self):
-        """Shutdown robot safely."""
+    def shutdown(self, emergency=False):
+        """Shutdown robot safely.
+
+        Args:
+            emergency: If True, skip waiting for movements (for Ctrl+C shutdown)
+        """
         print("\n[Robot] Shutting down...")
         try:
-            self.go_home()
+            # During emergency shutdown, don't wait for home position to complete
+            self.go_home(wait=not emergency)
             self._arm.set_state(4)
             print("[Robot] Shutdown complete.")
+        except KeyboardInterrupt:
+            print("[Robot] Shutdown interrupted - stopping immediately")
+            try:
+                self._arm.set_state(4)
+            except:
+                pass
         except Exception as e:
             print(f"[Robot] Shutdown error: {e}")
 
@@ -933,6 +951,7 @@ class XArmClickController:
         self.inspect_manager = InspectDataManager()
         self.arm = XArmController()
         self.running = False
+        self.emergency_stop = False
         self.last_processed_click_time = 0
         self.last_processed_inspect_time = 0
         self.last_picked_angle = 0.0  # Store angle from last pick for place operation
@@ -1101,6 +1120,7 @@ class XArmClickController:
 
         except KeyboardInterrupt:
             print("\n\n[INFO] Stopping arm controller...")
+            self.emergency_stop = True
         finally:
             self.stop()
 
@@ -1108,7 +1128,9 @@ class XArmClickController:
         """Stop the controller and cleanup."""
         self.running = False
         print("\n[INFO] Stopping controller...")
-        self.arm.shutdown()
+        # Use emergency=True if stopped via Ctrl+C to avoid blocking
+        emergency = getattr(self, 'emergency_stop', False)
+        self.arm.shutdown(emergency=emergency)
         self.click_manager.cleanup()
         self.inspect_manager.cleanup()
         print("[INFO] Controller stopped.\n")
