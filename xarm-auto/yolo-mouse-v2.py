@@ -111,6 +111,7 @@ mouse_button = "left"  # "left", "middle", or "right"
 selected_object = None
 show_coordinates = False
 inspection_mode = False  # Track if we're in inspection mode
+last_click_x_mm, last_click_y_mm = 0.0, 0.0  # Store last clicked position in detection coordinates (mm)
 
 def mouse_callback(event, x, y, flags, param):
     """Handle mouse events on the detection window"""
@@ -899,6 +900,11 @@ def main():
                 click_x_mm = real_coord[0][0]
                 click_y_mm = real_coord[0][1]
 
+                # Store the clicked position globally (for inspection)
+                global last_click_x_mm, last_click_y_mm
+                last_click_x_mm = click_x_mm
+                last_click_y_mm = click_y_mm
+
                 # Check if clicked on any object
                 clicked_on_object = False
                 for obj_data in object_data_list:
@@ -908,13 +914,14 @@ def main():
                         clicked_on_object = True
                         # Send object center position, ANGLE, and DIMENSIONS to robot
                         click_manager.write_click(
-                            obj_data['x_mm'], 
-                            obj_data['y_mm'], 
+                            obj_data['x_mm'],
+                            obj_data['y_mm'],
                             mouse_button,
                             obj_data['angle'],
                             obj_data['width'],
                             obj_data['height']
                         )
+                        print(f"[CLICK] Object clicked at ({click_x_mm:.1f}, {click_y_mm:.1f}) mm - Center at ({obj_data['x_mm']:.1f}, {obj_data['y_mm']:.1f}) mm")
                         break
 
                 # If clicked on empty space, send clicked position to robot
@@ -932,11 +939,12 @@ def main():
                     # Show object info
                     info_lines = [
                         f"Object ID: {selected_object['id']}",
-                        f"Position: ({selected_object['x_mm']:.1f}, {selected_object['y_mm']:.1f}) mm",
+                        f"Center: ({selected_object['x_mm']:.1f}, {selected_object['y_mm']:.1f}) mm",
+                        f"Clicked: ({last_click_x_mm:.1f}, {last_click_y_mm:.1f}) mm",
                         f"Angle: {selected_object['angle']:.1f} degrees",
                         f"Width: {selected_object['width']:.1f} mm",
                         f"Height: {selected_object['height']:.1f} mm",
-                        "Press 'T' to inspect"
+                        "Press 'T' to inspect clicked position"
                     ]
 
                     draw_info_panel(annotated_frame, mouse_x + 10, mouse_y + 10, info_lines, f"Object {selected_object['id']}")
@@ -1049,13 +1057,15 @@ def main():
             if key == ord('q') or key == ord('Q'):
                 break
             elif key == ord('t') or key == ord('T'):
-                # Trigger inspection mode
+                # Trigger inspection mode - inspect at clicked position, not object center
                 if selected_object and cam_inspect:
                     print(f"\n[INSPECT MODE] Inspecting Object {selected_object['id']}")
+                    print(f"[INSPECT MODE] Clicked position: ({last_click_x_mm:.1f}, {last_click_y_mm:.1f}) mm")
+                    print(f"[INSPECT MODE] Object center: ({selected_object['x_mm']:.1f}, {selected_object['y_mm']:.1f}) mm")
                     inspect_manager.write_inspect_command(
-                        selected_object['x_mm'],
-                        selected_object['y_mm'],
-                        selected_object['angle']
+                        last_click_x_mm,  # Use clicked position, not object center
+                        last_click_y_mm,  # Use clicked position, not object center
+                        selected_object['angle']  # Use object angle for camera orientation
                     )
                 elif not cam_inspect:
                     print("[WARNING] Inspection camera not available")
