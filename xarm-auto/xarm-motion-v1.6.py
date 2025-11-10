@@ -479,7 +479,7 @@ class XArmController:
         4. This ensures camera can detect object regardless of orientation (vertical/horizontal/diagonal)
         """
         # Camera aligns with object orientation for proper viewing
-        inspect_angle = object_angle
+        inspect_angle = -object_angle
 
         print(f"[Inspect Logic] Object angle: {object_angle:.1f}°")
         print(f"[Inspect Logic] Camera angle (aligned): {inspect_angle:.1f}°")
