@@ -34,13 +34,27 @@ camera offset = (robot - camera)
 
 **92.9 mm**
 
+
+
+**camera offset:**
+
+offset\_x: 7.9,
+
+offset\_y: -88.5,
+
+offset\_error: 0,
+
+inspection\_angle\_offset: 180
+
+
+
 X,Y,Z(mm)
 
 TR)288.7,16.1,103.4
 
 BL)-3.6,313.3,103.4
 
-TL)288.7,313.3
+TL)288.7,313.3,103.4
 
 BR)?,?
 
@@ -53,7 +67,13 @@ BR)?,?
 **initial position for calibration**
 X,Y,Z(mm),roll,pitch,yaw
 
--95.3,211.6,172.1,-179.6,-1.2,-1.6
+-55.3,207.3,92.7,179.7,-0.2,-2.4
+
+
+
+J1,J2,J3,J4,J5,J6
+
+104.8,19.4,36.2,0,16.8,107.3
 
 
 

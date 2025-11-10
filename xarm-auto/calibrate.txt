@@ -24,10 +24,11 @@ BR)?,?
 
 *add error offset
 
-
 initial position for calibration
 X,Y,Z(mm),roll,pitch,yaw
--95.3,211.6,172.1,-179.6,-1.2,-1.6
+-55.3,207.3,92.7,179.7,-0.2,-2.4
+J1,J2,J3,J4,J5,J6
+104.8,19.4,36.2,0,16.8,107.3
 
 home position
 [1.5, 6.3, 45.5, 0, 39.2, 3.2]

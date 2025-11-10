@@ -5,12 +5,12 @@
     "angle_speed": 20,
     "angle_acc": 500,
     "calibration_position": {
-        "x": -95.3,
-        "y": 211.6,
-        "z": 172.1,
-        "roll": -179.6,
-        "pitch": -1.2,
-        "yaw": -1.6
+        "x": -55.3,
+        "y": 207.3,
+        "z": 92.7,
+        "roll": 179.7,
+        "pitch": -0.2,
+        "yaw": -2.4
     },
     "click_control": {
         "safe_height": 150,
@@ -30,9 +30,9 @@
         "inspection_camera_index": 1
     },
     "camera_offset": {
-        "offset_x": 92.9,
-        "offset_y": -1.35,
-        "offset_error": 0.4,
+        "offset_x": 7.91,
+        "offset_y": -88.5,
+        "offset_error": 0,
         "inspection_angle_offset": 180
     },
     "window_config": {
