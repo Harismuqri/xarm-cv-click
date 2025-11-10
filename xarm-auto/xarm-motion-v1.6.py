@@ -464,7 +464,7 @@ class XArmController:
         """
         Calculate the optimal camera viewing angle for inspection.
 
-        For horizontal objects (90°): Camera stays at 0° (no rotation needed)
+        For vertical objects (0°): Camera stays at 0° (no rotation needed)
         For other angles: Camera rotates right (-object_angle) to align
 
         Args:
@@ -475,17 +475,17 @@ class XArmController:
 
         Calculation Process:
         1. Object detected at angle (e.g., 0°, 45°, 90°, etc.)
-        2. If horizontal (90° ± tolerance): yaw = 0° (no rotation)
+        2. If vertical (0° ± tolerance): yaw = 0° (no rotation)
         3. Otherwise: yaw = -object_angle (turn right to align)
         """
-        # Horizontal objects don't need rotation - camera's natural orientation works
-        # Check if object is horizontal (around 90°, with tolerance for detection noise)
-        if abs(object_angle - 90) < 15:  # 90° ± 15° tolerance
+        # Vertical objects don't need rotation - camera's natural orientation works
+        # Check if object is vertical (around 0°, with tolerance for detection noise)
+        if abs(object_angle) < 5:  # 0° ± 5° tolerance
             inspect_angle = 0
-            print(f"[Inspect Logic] Object angle: {object_angle:.1f}° (horizontal)")
+            print(f"[Inspect Logic] Object angle: {object_angle:.1f}° (vertical)")
             print(f"[Inspect Logic] Camera angle: {inspect_angle:.1f}° (no rotation needed)")
         else:
-            # For vertical/diagonal objects, turn right to align
+            # For horizontal/diagonal objects, turn right to align
             inspect_angle = -object_angle
             print(f"[Inspect Logic] Object angle: {object_angle:.1f}°")
             print(f"[Inspect Logic] Camera angle: {inspect_angle:.1f}° (turn right to align)")
