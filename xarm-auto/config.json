@@ -32,8 +32,7 @@
     "camera_offset": {
         "offset_x": 7.91,
         "offset_y": -88.5,
-        "offset_error": 0,
-        "inspection_angle_offset": 180
+        "offset_error": 0
     },
     "window_config": {
         "detection_width": 960,

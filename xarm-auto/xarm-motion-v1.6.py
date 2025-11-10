@@ -464,9 +464,7 @@ class XArmController:
         """
         Calculate the optimal camera viewing angle for inspection.
 
-        The inspection camera should ALIGN with the object's orientation to view it properly.
-        The inspection_angle_offset in config describes the physical camera mounting position,
-        not an additive calculation parameter.
+        The inspection camera aligns with the object's orientation to view it properly.
 
         Args:
             object_angle: Detected object angle in degrees (0-180)
@@ -476,13 +474,11 @@ class XArmController:
 
         Calculation Process:
         1. Object detected at angle (e.g., 0°, 45°, 90°, etc.)
-        2. Camera should align WITH the object's orientation
+        2. Camera aligns WITH the object's orientation
         3. Robot yaw = object_angle (direct alignment)
         4. This ensures camera can detect object regardless of orientation (vertical/horizontal/diagonal)
         """
-        # Camera should align with object orientation for proper viewing
-        # Do NOT add offset - the offset describes mounting position, not calculation
-        # The inspection camera needs to match the object's angle to view it correctly
+        # Camera aligns with object orientation for proper viewing
         inspect_angle = object_angle
 
         print(f"[Inspect Logic] Object angle: {object_angle:.1f}°")
