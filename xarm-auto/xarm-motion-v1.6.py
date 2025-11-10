@@ -848,17 +848,11 @@ class XArmController:
         try:
             # Calculate optimal camera viewing angle FIRST
             camera_angle = self.calculate_optimal_inspect_angle(object_angle)
-            
-            # Rotate the camera offset based on gripper angle
-            # Camera rotates with gripper, so offset vector must rotate the same way
-            angle_rad = math.radians(camera_angle)
-            rotated_offset_x = offset_x * math.cos(angle_rad) - offset_y * math.sin(angle_rad)
-            rotated_offset_y = offset_x * math.sin(angle_rad) + offset_y * math.cos(angle_rad)
-            
-            # Calculate gripper position in detection coordinates
-            # Gripper needs to be at target - rotated_offset
-            gripper_det_x = target_det_x - rotated_offset_x
-            gripper_det_y = target_det_y - rotated_offset_y
+
+            # Use fixed camera offset (defined in workspace coordinates, not gripper frame)
+            # The offset does NOT rotate with the gripper - it's a fixed position offset
+            gripper_det_x = target_det_x - offset_x
+            gripper_det_y = target_det_y - offset_y
 
             # Transform gripper position to robot coordinates
             robot_x, robot_y = self.transform_detection_to_robot(gripper_det_x, gripper_det_y)
@@ -877,8 +871,7 @@ class XArmController:
             print(f"[Inspect] INSPECTION SEQUENCE START")
             print(f"[Inspect] Target (detection): ({target_det_x:.1f}, {target_det_y:.1f}) mm")
             print(f"[Inspect] Object angle: {object_angle:.1f}° → Camera angle: {camera_angle:.1f}°")
-            print(f"[Inspect] Camera offset (original): ({offset_x:.1f}, {offset_y:.1f}) mm")
-            print(f"[Inspect] Camera offset (rotated): ({rotated_offset_x:.1f}, {rotated_offset_y:.1f}) mm")
+            print(f"[Inspect] Camera offset: ({offset_x:.1f}, {offset_y:.1f}) mm (fixed, no rotation)")
             print(f"[Inspect] Gripper position (detection): ({gripper_det_x:.1f}, {gripper_det_y:.1f}) mm")
             print(f"[Inspect] Gripper position (robot): ({robot_x:.1f}, {robot_y:.1f}) mm")
             print(f"[Inspect] Inspection height: {self.inspect_height} mm")
