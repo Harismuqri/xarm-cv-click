@@ -5,20 +5,29 @@ TL)0,300 = ?,?
 TR)300,300 = 382,14.7
 BR)300,0 = 85.1,12.2
 
-
-correction
+Correction
+detection = robot
 X,Y(mm) = X,Y(mm)
-BL)0,0 = 88.9,312
 TR)300,300 = 382,14.7
+BL)0,0 = 88.9,312
 BR)300,0 = 88.9,14.7
 TL)0,300 = 382,312
 
 
-camera = (robot - camera)
+camera offset = (robot - camera)
+92.9 mm
 X,Y,Z(mm)
-TR)291,14.6,81.7
-BL)-6.6,316.1,81.7
-TL)?,?
+TR)288.7,16.1,103.4
+BL)-3.6,313.3,103.4
+TL)288.7,313.3
 BR)?,?
 
 *add error offset
+
+
+initial position for calibration
+X,Y,Z(mm),roll,pitch,yaw
+-95.3,211.6,172.1,-179.6,-1.2,-1.6
+
+home position
+[1.5, 6.3, 45.5, 0, 39.2, 3.2]

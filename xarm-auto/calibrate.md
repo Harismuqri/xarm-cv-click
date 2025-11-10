@@ -50,8 +50,14 @@ BR)?,?
 
 
 
-initial position for calibration
+**initial position for calibration**
 X,Y,Z(mm),roll,pitch,yaw
 
 -95.3,211.6,172.1,-179.6,-1.2,-1.6
+
+
+
+**home position**
+
+\[1.5, 6.3, 45.5, 0, 39.2, 3.2]
 

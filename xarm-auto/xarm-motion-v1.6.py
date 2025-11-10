@@ -237,7 +237,7 @@ class XArmController:
         self.load_homography()
 
         # Home position
-        self.home_position = [1.5, 6.3, 45.5, -0.4, 41.0, -7.0]
+        self.home_position = [1.5, 6.3, 45.5, 0, 39.2, 3.2]
 
         # Load calibration position from config
         calib_config = self.config.get("calibration_position", {})
