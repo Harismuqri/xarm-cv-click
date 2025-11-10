@@ -464,7 +464,8 @@ class XArmController:
         """
         Calculate the optimal camera viewing angle for inspection.
 
-        The inspection camera aligns with the object's orientation to view it properly.
+        For horizontal objects (90°): Camera stays at 0° (no rotation needed)
+        For other angles: Camera rotates right (-object_angle) to align
 
         Args:
             object_angle: Detected object angle in degrees (0-180)
@@ -474,17 +475,21 @@ class XArmController:
 
         Calculation Process:
         1. Object detected at angle (e.g., 0°, 45°, 90°, etc.)
-        2. Camera aligns WITH the object's orientation
-        3. Robot yaw = object_angle (direct alignment)
-        4. This ensures camera can detect object regardless of orientation (vertical/horizontal/diagonal)
+        2. If horizontal (90° ± tolerance): yaw = 0° (no rotation)
+        3. Otherwise: yaw = -object_angle (turn right to align)
         """
-        # Camera aligns with object orientation for proper viewing
-        inspect_angle = -object_angle
+        # Horizontal objects don't need rotation - camera's natural orientation works
+        # Check if object is horizontal (around 90°, with tolerance for detection noise)
+        if abs(object_angle - 90) < 15:  # 90° ± 15° tolerance
+            inspect_angle = 0
+            print(f"[Inspect Logic] Object angle: {object_angle:.1f}° (horizontal)")
+            print(f"[Inspect Logic] Camera angle: {inspect_angle:.1f}° (no rotation needed)")
+        else:
+            # For vertical/diagonal objects, turn right to align
+            inspect_angle = -object_angle
+            print(f"[Inspect Logic] Object angle: {object_angle:.1f}°")
+            print(f"[Inspect Logic] Camera angle: {inspect_angle:.1f}° (turn right to align)")
 
-        print(f"[Inspect Logic] Object angle: {object_angle:.1f}°")
-        print(f"[Inspect Logic] Camera angle (aligned): {inspect_angle:.1f}°")
-        print(f"[Inspect Logic] → Robot rotates to match object orientation")
-        
         return inspect_angle
 
     def connect_robot(self):
