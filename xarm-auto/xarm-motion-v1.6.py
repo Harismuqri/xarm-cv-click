@@ -850,8 +850,8 @@ class XArmController:
             camera_angle = self.calculate_optimal_inspect_angle(object_angle)
             
             # Rotate the camera offset based on gripper angle
-            # Camera rotates with gripper, so offset changes based on angle
-            angle_rad = math.radians(-camera_angle)
+            # Camera rotates with gripper, so offset vector must rotate the same way
+            angle_rad = math.radians(camera_angle)
             rotated_offset_x = offset_x * math.cos(angle_rad) - offset_y * math.sin(angle_rad)
             rotated_offset_y = offset_x * math.sin(angle_rad) + offset_y * math.cos(angle_rad)
             
