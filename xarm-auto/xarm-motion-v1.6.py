@@ -464,33 +464,30 @@ class XArmController:
         """
         Calculate the optimal camera viewing angle for inspection.
 
-        The camera is mounted on the robot with an angular offset from the gripper.
-        To properly view the object, we need to rotate the robot by:
-        robot_yaw = object_angle + camera_mounting_offset
+        The inspection camera should ALIGN with the object's orientation to view it properly.
+        The inspection_angle_offset in config describes the physical camera mounting position,
+        not an additive calculation parameter.
 
         Args:
             object_angle: Detected object angle in degrees (0-180)
 
         Returns:
             float: Optimal camera yaw angle in degrees
-            
+
         Calculation Process:
-        1. Object detected at angle (e.g., 104.7°)
-        2. Camera mounted at offset angle from gripper (e.g., 90°)
-        3. Robot yaw = object_angle + inspection_angle_offset
-        4. This rotates robot so inspection camera points at object
+        1. Object detected at angle (e.g., 0°, 45°, 90°, etc.)
+        2. Camera should align WITH the object's orientation
+        3. Robot yaw = object_angle (direct alignment)
+        4. This ensures camera can detect object regardless of orientation (vertical/horizontal/diagonal)
         """
-        # Get camera angle offset from config
-        camera_config = self.config.get("camera_offset", {})
-        camera_angle_offset = camera_config.get("inspection_angle_offset", 90)
-        
-        # Calculate robot yaw: align with object angle + camera offset
-        inspect_angle = (object_angle + camera_angle_offset) % 360
-        
+        # Camera should align with object orientation for proper viewing
+        # Do NOT add offset - the offset describes mounting position, not calculation
+        # The inspection camera needs to match the object's angle to view it correctly
+        inspect_angle = object_angle
+
         print(f"[Inspect Logic] Object angle: {object_angle:.1f}°")
-        print(f"[Inspect Logic] Camera offset: {camera_angle_offset:.1f}°")
-        print(f"[Inspect Logic] Calculated robot yaw: {inspect_angle:.1f}°")
-        print(f"[Inspect Logic] → Robot rotates to this angle so camera views object")
+        print(f"[Inspect Logic] Camera angle (aligned): {inspect_angle:.1f}°")
+        print(f"[Inspect Logic] → Robot rotates to match object orientation")
         
         return inspect_angle
 
