@@ -187,13 +187,15 @@ class InspectDataManager:
         data["processed"] = True
         self._write_data(data)
 
-    def write_inspect_command(self, target_x, target_y, angle=0.0):
+    def write_inspect_command(self, target_x, target_y, angle=0.0, width=0.0, height=0.0):
         """Send inspection command with target position and object angle."""
         data = {
             "inspect": True,
             "target_x": float(target_x),
             "target_y": float(target_y),
             "angle": float(angle),
+            "width": float(width),
+            "height": float(height),
             "offset_x": CAMERA_OFFSET_X,
             "offset_y": CAMERA_OFFSET_Y,
             "offset_error": CAMERA_OFFSET_ERROR,
@@ -826,7 +828,7 @@ class XArmController:
             print(f"{'='*60}\n")
             return False
 
-    def inspect_sequence(self, target_det_x, target_det_y, object_angle=0.0, offset_x=CAMERA_OFFSET_X, offset_y=CAMERA_OFFSET_Y):
+    def inspect_sequence(self, target_det_x, target_det_y, object_angle=0.0, object_width=0.0, object_height=0.0, offset_x=CAMERA_OFFSET_X, offset_y=CAMERA_OFFSET_Y):
         """
         Execute inspection sequence - move gripper so inspection camera views target.
 
@@ -837,6 +839,7 @@ class XArmController:
         Args:
             target_det_x, target_det_y: Target position in detection coordinates (mm)
             object_angle: Object angle in degrees (0-180) - used to calculate optimal camera angle
+            object_width, object_height: Object dimensions in mm
             offset_x, offset_y: Camera offset from gripper center point (mm)
         """
         try:
@@ -847,6 +850,32 @@ class XArmController:
             
             # Calculate offset magnitude and direction
             offset_magnitude = math.sqrt(offset_x**2 + offset_y**2)
+            
+            # Determine object orientation
+            orientation = "unknown"
+            default_direction_name = "Forward"
+            default_direction_offset = 0  # Offset from camera_angle
+            camera_angle_adjustment = 0  # Additional angle adjustment for camera based on orientation
+            
+            if object_width > 0 and object_height > 0:
+                aspect_ratio = object_width / object_height
+                if aspect_ratio > 1.5:
+                    orientation = "vertical"  # Width > Height = x-axis aligned
+                    default_direction_name = "Backward"  # DOWN
+                    default_direction_offset = 180
+                    camera_angle_adjustment = 0  # No additional adjustment for vertical
+                elif aspect_ratio < 0.67:
+                    orientation = "horizontal"  # Height > Width = y-axis aligned
+                    default_direction_name = "Left"
+                    default_direction_offset = 90  # LEFT = 90°
+                
+                print(f"[Inspect Logic] Object size: {object_width:.1f}x{object_height:.1f}mm - Aspect: {aspect_ratio:.2f} - {orientation.upper()}")
+                print(f"[Inspect Logic] Default direction: {default_direction_name}")
+                if camera_angle_adjustment != 0:
+                    print(f"[Inspect Logic] Camera angle adjustment: {camera_angle_adjustment:.1f}°")
+            
+            # Apply orientation-based camera angle adjustment
+            camera_angle = camera_angle + camera_angle_adjustment
             
             # Try 4 possible offset directions (0°, 90°, 180°, 270° relative to object angle)
             # This represents: forward, right, backward, left relative to the object orientation
@@ -871,33 +900,62 @@ class XArmController:
             print(f"[Inspect] Target: ({target_det_x:.1f}, {target_det_y:.1f}) mm")
             print(f"[Inspect] Object angle: {object_angle:.1f}° → Base camera angle: {camera_angle:.1f}°")
             print(f"[Inspect] Camera offset magnitude: {offset_magnitude:.1f} mm")
-            print(f"[Inspect] Testing 4 possible offset directions...")
             
-            # Test each possible angle
-            for i, test_angle in enumerate(possible_angles):
-                # Normalize angle
-                test_angle_norm = test_angle % 360
+            # Try default direction first if orientation is known
+            if default_direction_offset > 0:
+                default_angle = camera_angle + default_direction_offset
+                default_angle_norm = default_angle % 360
+                angle_rad = math.radians(default_angle_norm)
+                default_offset_x = offset_magnitude * math.cos(angle_rad)
+                default_offset_y = offset_magnitude * math.sin(angle_rad)
+                default_gripper_x = target_det_x + default_offset_x
+                default_gripper_y = target_det_y + default_offset_y
                 
-                # Calculate offset position based on this angle
-                angle_rad = math.radians(test_angle_norm)
-                test_offset_x = offset_magnitude * math.cos(angle_rad)
-                test_offset_y = offset_magnitude * math.sin(angle_rad)
+                in_workspace = (workspace_min_x <= default_gripper_x <= workspace_max_x and
+                               workspace_min_y <= default_gripper_y <= workspace_max_y)
                 
-                # Calculate gripper position
-                test_gripper_x = target_det_x + test_offset_x
-                test_gripper_y = target_det_y + test_offset_y
-                
-                # Check if this position is in workspace
-                in_workspace = (workspace_min_x <= test_gripper_x <= workspace_max_x and
-                               workspace_min_y <= test_gripper_y <= workspace_max_y)
-                
-                direction_names = ["Forward", "Right", "Backward", "Left"]
-                print(f"[Inspect]   Option {i+1} ({direction_names[i]}): "
-                      f"Angle={test_angle_norm:.1f}°, "
-                      f"Pos=({test_gripper_x:.1f}, {test_gripper_y:.1f}) mm - "
+                print(f"[Inspect] Trying default direction ({default_direction_name}): "
+                      f"Angle={default_angle_norm:.1f}°, "
+                      f"Pos=({default_gripper_x:.1f}, {default_gripper_y:.1f}) mm - "
                       f"{'✓ IN WORKSPACE' if in_workspace else '✗ OUT OF BOUNDS'}")
                 
-                # Use first valid position found
+                if in_workspace:
+                    best_position = (default_gripper_x, default_gripper_y)
+                    best_angle = default_angle_norm
+                    print(f"[Inspect] ✓ Using default direction: {default_direction_name}")
+            
+            # If default didn't work, test all 4 directions
+            if best_position is None:
+                print(f"[Inspect] Default direction not valid, testing all 4 directions...")
+                
+                # Test each possible angle
+                for i, test_angle in enumerate(possible_angles):
+                    # Normalize angle
+                    test_angle_norm = test_angle % 360
+                    
+                    # Calculate offset position based on this angle
+                    angle_rad = math.radians(test_angle_norm)
+                    test_offset_x = offset_magnitude * math.cos(angle_rad)
+                    test_offset_y = offset_magnitude * math.sin(angle_rad)
+                    
+                    # Calculate gripper position
+                    test_gripper_x = target_det_x + test_offset_x
+                    test_gripper_y = target_det_y + test_offset_y
+                    
+                    # Check if this position is in workspace
+                    in_workspace = (workspace_min_x <= test_gripper_x <= workspace_max_x and
+                                   workspace_min_y <= test_gripper_y <= workspace_max_y)
+                    
+                    direction_names = ["Forward", "Right", "Backward", "Left"]
+                    print(f"[Inspect]   Option {i+1} ({direction_names[i]}): "
+                          f"Angle={test_angle_norm:.1f}°, "
+                          f"Pos=({test_gripper_x:.1f}, {test_gripper_y:.1f}) mm - "
+                          f"{'✓ IN WORKSPACE' if in_workspace else '✗ OUT OF BOUNDS'}")
+                    
+                    # Use first valid position found
+                    if in_workspace and best_position is None:
+                        best_position = (test_gripper_x, test_gripper_y)
+                        best_angle = test_angle_norm
                 if in_workspace and best_position is None:
                     best_position = (test_gripper_x, test_gripper_y)
                     best_angle = test_angle_norm
@@ -1098,8 +1156,24 @@ class XArmClickController:
         if timestamp <= self.last_processed_click_time:
             return
 
+        # DEBUG: Print all available data
+        print(f"\n[DEBUG] click_data keys: {click_data.keys()}")
+        print(f"[DEBUG] click_data contents: {click_data}")
+
+        # Determine object orientation
+        orientation = "unknown"
+        grip_angle = angle
         if width > 0 and height > 0:
-            print(f"\n[CLICK DETECTED] Position: ({x:.1f}, {y:.1f}) mm - Button: {button.upper()} - Angle: {angle:.1f}° - Size: {width:.1f}x{height:.1f}mm")
+            aspect_ratio = width / height
+            if aspect_ratio > 1.5:
+                orientation = "vertical"  # Width > Height = x-axis aligned
+                grip_angle = angle
+            elif aspect_ratio < 0.67:
+                orientation = "horizontal"  # Height > Width = y-axis aligned
+                grip_angle = angle + 90
+            print(f"\n[CLICK DETECTED] Position: ({x:.1f}, {y:.1f}) mm - Button: {button.upper()}")
+            print(f"[ORIENTATION] Size: {width:.1f}x{height:.1f}mm - Aspect: {aspect_ratio:.2f} - {orientation.upper()}")
+            print(f"[ORIENTATION] Detected angle: {angle:.1f}° → Grip angle: {grip_angle:.1f}°")
         else:
             print(f"\n[CLICK DETECTED] Position: ({x:.1f}, {y:.1f}) mm - Button: {button.upper()} - Angle: {angle:.1f}°")
 
@@ -1131,11 +1205,11 @@ class XArmClickController:
             # Right button = Pick/Place toggle
             if not self.has_picked:
                 # First right-click: PICK
-                print(f"[INFO] Executing PICK sequence (object angle: {angle:.1f}°)...")
-                success = self.arm.pick_sequence(x, y, object_angle=angle, object_width=width, object_height=height)
+                print(f"[INFO] Executing PICK sequence (grip angle: {grip_angle:.1f}°)...")
+                success = self.arm.pick_sequence(x, y, object_angle=grip_angle, object_width=width, object_height=height)
                 if success:
                     self.has_picked = True
-                    self.last_picked_angle = angle
+                    self.last_picked_angle = grip_angle
                     self.last_picked_x = x
                     self.last_picked_y = y
                     print(f"[STATE] ✅ Object picked! Next right-click will PLACE.")
@@ -1163,6 +1237,8 @@ class XArmClickController:
         target_x = inspect_data.get("target_x", 0)
         target_y = inspect_data.get("target_y", 0)
         angle = inspect_data.get("angle", 0.0)
+        width = inspect_data.get("width", 0.0)
+        height = inspect_data.get("height", 0.0)
         offset_x = inspect_data.get("offset_x", CAMERA_OFFSET_X)
         offset_y = inspect_data.get("offset_y", CAMERA_OFFSET_Y)
         timestamp = inspect_data.get("timestamp", 0)
@@ -1184,9 +1260,9 @@ class XArmClickController:
         # Check and recover from any errors
         self.arm.check_and_recover()
 
-        # Execute inspection sequence with object angle
+        # Execute inspection sequence with object angle and dimensions
         print("[INFO] Executing inspection sequence...")
-        success = self.arm.inspect_sequence(target_x, target_y, object_angle=angle, offset_x=offset_x, offset_y=offset_y)
+        success = self.arm.inspect_sequence(target_x, target_y, object_angle=angle, object_width=width, object_height=height, offset_x=offset_x, offset_y=offset_y)
 
         if success:
             print("[SUCCESS] Inspection position reached!")

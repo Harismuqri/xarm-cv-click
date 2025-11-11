@@ -496,13 +496,15 @@ class InspectDataManager:
             print(f"[ERROR] Failed to write inspect data: {e}")
             return False
 
-    def write_inspect_command(self, target_x, target_y, angle=0.0):
+    def write_inspect_command(self, target_x, target_y, angle=0.0, width=0.0, height=0.0):
         """Send inspection command with target position and object angle."""
         data = {
             "inspect": True,
             "target_x": float(target_x),
             "target_y": float(target_y),
             "angle": float(angle),
+            "width": float(width),
+            "height": float(height),
             "offset_x": CAMERA_OFFSET_X,
             "offset_y": CAMERA_OFFSET_Y,
             "offset_error": CAMERA_OFFSET_ERROR,
@@ -1070,7 +1072,9 @@ def main():
                     inspect_manager.write_inspect_command(
                         last_click_x_mm,  # Use clicked position, not object center
                         last_click_y_mm,  # Use clicked position, not object center
-                        selected_object['angle']  # Use object angle for camera orientation
+                        selected_object['angle'],  # Use object angle for camera orientation
+                        selected_object['width'],  # Object width
+                        selected_object['height']  # Object height
                     )
                 elif not cam_inspect:
                     print("[WARNING] Inspection camera not available")
