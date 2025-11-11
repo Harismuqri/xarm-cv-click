@@ -840,33 +840,108 @@ class XArmController:
             offset_x, offset_y: Camera offset from gripper center point (mm)
         """
         try:
+            import math
+            
             # Calculate optimal camera viewing angle FIRST
             camera_angle = self.calculate_optimal_inspect_angle(object_angle)
-
-            # Use Y-axis offset only (no rotation, no X offset)
-            # This positions the gripper at the target X, but offset in Y direction
-            gripper_det_x = target_det_x  # Keep X position (no X offset)
-            gripper_det_y = target_det_y - offset_y  # Apply Y offset only
-
+            
+            # Calculate offset magnitude and direction
+            offset_magnitude = math.sqrt(offset_x**2 + offset_y**2)
+            
+            # Try 4 possible offset directions (0°, 90°, 180°, 270° relative to object angle)
+            # This represents: forward, right, backward, left relative to the object orientation
+            possible_angles = [
+                camera_angle,           # Forward (same direction as object)
+                camera_angle + 90,      # Right side
+                camera_angle + 180,     # Backward (opposite direction)
+                camera_angle + 270      # Left side
+            ]
+            
+            # Workspace boundaries in detection coordinates
+            workspace_min_x = 0
+            workspace_max_x = 300
+            workspace_min_y = 0
+            workspace_max_y = 300
+            
+            best_position = None
+            best_angle = None
+            
+            print(f"\n{'='*60}")
+            print(f"[Inspect] SMART WORKSPACE-AWARE POSITIONING")
+            print(f"[Inspect] Target: ({target_det_x:.1f}, {target_det_y:.1f}) mm")
+            print(f"[Inspect] Object angle: {object_angle:.1f}° → Base camera angle: {camera_angle:.1f}°")
+            print(f"[Inspect] Camera offset magnitude: {offset_magnitude:.1f} mm")
+            print(f"[Inspect] Testing 4 possible offset directions...")
+            
+            # Test each possible angle
+            for i, test_angle in enumerate(possible_angles):
+                # Normalize angle
+                test_angle_norm = test_angle % 360
+                
+                # Calculate offset position based on this angle
+                angle_rad = math.radians(test_angle_norm)
+                test_offset_x = offset_magnitude * math.cos(angle_rad)
+                test_offset_y = offset_magnitude * math.sin(angle_rad)
+                
+                # Calculate gripper position
+                test_gripper_x = target_det_x + test_offset_x
+                test_gripper_y = target_det_y + test_offset_y
+                
+                # Check if this position is in workspace
+                in_workspace = (workspace_min_x <= test_gripper_x <= workspace_max_x and
+                               workspace_min_y <= test_gripper_y <= workspace_max_y)
+                
+                direction_names = ["Forward", "Right", "Backward", "Left"]
+                print(f"[Inspect]   Option {i+1} ({direction_names[i]}): "
+                      f"Angle={test_angle_norm:.1f}°, "
+                      f"Pos=({test_gripper_x:.1f}, {test_gripper_y:.1f}) mm - "
+                      f"{'✓ IN WORKSPACE' if in_workspace else '✗ OUT OF BOUNDS'}")
+                
+                # Use first valid position found
+                if in_workspace and best_position is None:
+                    best_position = (test_gripper_x, test_gripper_y)
+                    best_angle = test_angle_norm
+            
+            # If no valid position found, use closest to center
+            if best_position is None:
+                print(f"[Inspect] ⚠ WARNING: No position fully in workspace!")
+                print(f"[Inspect] Using position closest to workspace center...")
+                
+                center_x = (workspace_max_x - workspace_min_x) / 2
+                center_y = (workspace_max_y - workspace_min_y) / 2
+                
+                best_dist = float('inf')
+                for i, test_angle in enumerate(possible_angles):
+                    test_angle_norm = test_angle % 360
+                    angle_rad = math.radians(test_angle_norm)
+                    test_offset_x = offset_magnitude * math.cos(angle_rad)
+                    test_offset_y = offset_magnitude * math.sin(angle_rad)
+                    test_gripper_x = target_det_x + test_offset_x
+                    test_gripper_y = target_det_y + test_offset_y
+                    
+                    dist = math.sqrt((test_gripper_x - center_x)**2 + (test_gripper_y - center_y)**2)
+                    if dist < best_dist:
+                        best_dist = dist
+                        best_position = (test_gripper_x, test_gripper_y)
+                        best_angle = test_angle_norm
+            
+            gripper_det_x, gripper_det_y = best_position
+            camera_angle = best_angle
+            
+            print(f"[Inspect] ✓ SELECTED: Position ({gripper_det_x:.1f}, {gripper_det_y:.1f}) mm, Angle: {camera_angle:.1f}°")
+            
             # Transform gripper position to robot coordinates
             robot_x, robot_y = self.transform_detection_to_robot(gripper_det_x, gripper_det_y)
 
             # Check if robot position is within workspace
             if not self.is_robot_position_safe(robot_x, robot_y):
-                print(f"\n{'='*60}")
-                print(f"[Inspect] ❌ POSITION OUT OF BOUNDS")
+                print(f"[Inspect] ❌ POSITION OUT OF BOUNDS (robot coordinates)")
                 print(f"[Inspect] Robot position: ({robot_x:.1f}, {robot_y:.1f}) mm")
                 print(f"[Inspect] Workspace limits: X=[{ROBOT_MIN_X:.1f}-{ROBOT_MAX_X:.1f}], Y=[{ROBOT_MIN_Y:.1f}-{ROBOT_MAX_Y:.1f}]")
                 print(f"[Inspect] Cannot proceed - position outside robot workspace!")
                 print(f"{'='*60}\n")
                 return False
 
-            print(f"\n{'='*60}")
-            print(f"[Inspect] INSPECTION SEQUENCE START")
-            print(f"[Inspect] Target (detection): ({target_det_x:.1f}, {target_det_y:.1f}) mm")
-            print(f"[Inspect] Object angle: {object_angle:.1f}° → Camera angle: {camera_angle:.1f}°")
-            print(f"[Inspect] Y-axis offset: {offset_y:.1f} mm (X offset not used)")
-            print(f"[Inspect] Gripper position (detection): ({gripper_det_x:.1f}, {gripper_det_y:.1f}) mm")
             print(f"[Inspect] Gripper position (robot): ({robot_x:.1f}, {robot_y:.1f}) mm")
             print(f"[Inspect] Inspection height: {self.inspect_height} mm")
             print(f"{'='*60}")
@@ -904,7 +979,6 @@ class XArmController:
             if code == 0:
                 print(f"[Inspect] ✅ INSPECTION POSITION REACHED")
                 print(f"[Inspect] The inspection camera should now be viewing the target")
-                print(f"[Inspect] Position error tolerance: ±{CAMERA_OFFSET_ERROR:.1f} mm")
                 print(f"{'='*60}\n")
                 return True
             else:
