@@ -464,9 +464,8 @@ class XArmController:
         """
         Calculate the optimal camera viewing angle for inspection.
 
-        The camera views from 90° perpendicular to the object for best visual.
-        For vertical objects (0°): Camera stays at 0° (no rotation needed)
-        For other angles: Camera rotates to -(object_angle + 90°) for perpendicular view
+        Camera rotates 90° clockwise from object angle for perpendicular view.
+        Formula: camera_angle = object_angle + 90°
 
         Args:
             object_angle: Detected object angle in degrees (0-180)
@@ -474,21 +473,16 @@ class XArmController:
         Returns:
             float: Optimal camera yaw angle in degrees
 
-        Calculation Process:
-        1. Object detected at angle (e.g., 0°, 45°, 90°, etc.)
-        2. If vertical (0° ± tolerance): yaw = 0° (no rotation)
-        3. Otherwise: yaw = -(object_angle + 90°) for perpendicular camera view
+        Examples:
+        - Object at 0° (vertical) → Camera at 90° (perpendicular)
+        - Object at 45° (diagonal) → Camera at 135° (perpendicular)
+        - Object at 90° (horizontal) → Camera at 180° (perpendicular)
         """
-        # Vertical objects don't need rotation
-        if abs(object_angle) < 5:  # 0° ± 5° tolerance
-            inspect_angle = 0
-            print(f"[Inspect Logic] Object angle: {object_angle:.1f}° (vertical)")
-            print(f"[Inspect Logic] Camera angle: {inspect_angle:.1f}° (no rotation needed)")
-        else:
-            # Turn 90° from object angle for perpendicular camera view
-            inspect_angle = -(object_angle + 90)
-            print(f"[Inspect Logic] Object angle: {object_angle:.1f}°")
-            print(f"[Inspect Logic] Camera angle: {inspect_angle:.1f}° (object + 90° for perpendicular view)")
+        # Rotate 90° clockwise from object angle
+        inspect_angle = object_angle + 90
+
+        print(f"[Inspect Logic] Object angle: {object_angle:.1f}°")
+        print(f"[Inspect Logic] Camera angle: {inspect_angle:.1f}° (object + 90° clockwise)")
 
         return inspect_angle
 
@@ -849,16 +843,10 @@ class XArmController:
             # Calculate optimal camera viewing angle FIRST
             camera_angle = self.calculate_optimal_inspect_angle(object_angle)
 
-            # Rotate camera offset based on gripper yaw angle
-            # The offset is defined in gripper's local frame, so it rotates with the gripper
-            angle_rad = math.radians(camera_angle)
-            rotated_offset_x = offset_x * math.cos(angle_rad) - offset_y * math.sin(angle_rad)
-            rotated_offset_y = offset_x * math.sin(angle_rad) + offset_y * math.cos(angle_rad)
-
-            # Calculate gripper position: target - rotated_offset
-            # This positions the gripper so the camera (offset from gripper) views the target
-            gripper_det_x = target_det_x - rotated_offset_x
-            gripper_det_y = target_det_y - rotated_offset_y
+            # Use Y-axis offset only (no rotation, no X offset)
+            # This positions the gripper at the target X, but offset in Y direction
+            gripper_det_x = target_det_x  # Keep X position (no X offset)
+            gripper_det_y = target_det_y - offset_y  # Apply Y offset only
 
             # Transform gripper position to robot coordinates
             robot_x, robot_y = self.transform_detection_to_robot(gripper_det_x, gripper_det_y)
@@ -877,8 +865,7 @@ class XArmController:
             print(f"[Inspect] INSPECTION SEQUENCE START")
             print(f"[Inspect] Target (detection): ({target_det_x:.1f}, {target_det_y:.1f}) mm")
             print(f"[Inspect] Object angle: {object_angle:.1f}° → Camera angle: {camera_angle:.1f}°")
-            print(f"[Inspect] Camera offset (original): ({offset_x:.1f}, {offset_y:.1f}) mm")
-            print(f"[Inspect] Camera offset (rotated): ({rotated_offset_x:.1f}, {rotated_offset_y:.1f}) mm")
+            print(f"[Inspect] Y-axis offset: {offset_y:.1f} mm (X offset not used)")
             print(f"[Inspect] Gripper position (detection): ({gripper_det_x:.1f}, {gripper_det_y:.1f}) mm")
             print(f"[Inspect] Gripper position (robot): ({robot_x:.1f}, {robot_y:.1f}) mm")
             print(f"[Inspect] Inspection height: {self.inspect_height} mm")
