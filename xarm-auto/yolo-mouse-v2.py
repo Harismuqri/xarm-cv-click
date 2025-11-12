@@ -839,8 +839,19 @@ def main():
                     side1 = np.linalg.norm(transformed[1] - transformed[0])
                     side2 = np.linalg.norm(transformed[2] - transformed[1])
 
-                    width_mm = round(max(side1, side2), 1)
-                    height_mm = round(min(side1, side2), 1)
+                    # Determine width and height based on object angle
+                    # If angle is close to 0° or 180°, object is horizontal (side1 = width, side2 = height)
+                    # If angle is close to 90° or 270°, object is vertical (side1 = height, side2 = width)
+                    angle_normalized = angle % 180  # Normalize to 0-180 range
+                    
+                    if 45 <= angle_normalized <= 135:
+                        # Object is more vertical (standing tall)
+                        width_mm = round(min(side1, side2), 1)
+                        height_mm = round(max(side1, side2), 1)
+                    else:
+                        # Object is more horizontal (lying flat)
+                        width_mm = round(max(side1, side2), 1)
+                        height_mm = round(min(side1, side2), 1)
 
                     x_mm, y_mm = round(center[0], 1), round(center[1], 1)
                     angle_deg = round(angle, 2)

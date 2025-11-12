@@ -860,14 +860,14 @@ class XArmController:
             if object_width > 0 and object_height > 0:
                 aspect_ratio = object_width / object_height
                 if aspect_ratio > 1.5:
-                    orientation = "vertical"  # Width > Height = x-axis aligned
-                    default_direction_name = "Backward"  # DOWN
+                    orientation = "horizontal"  # Flat: width > height → robot goes UP/DOWN
+                    default_direction_name = "Backward"  # DOWN (orange arrow)
                     default_direction_offset = 180
-                    camera_angle_adjustment = 0  # No additional adjustment for vertical
+                    camera_angle_adjustment = 0  # No additional adjustment
                 elif aspect_ratio < 0.67:
-                    orientation = "horizontal"  # Height > Width = y-axis aligned
-                    default_direction_name = "Left"
-                    default_direction_offset = 90  # LEFT = 90°
+                    orientation = "vertical"  # Tall: height > width → robot goes to white arrow
+                    default_direction_name = "Left"  # Keep as "Left" for consistency
+                    default_direction_offset = 0  # 0° = white arrow
                 
                 print(f"[Inspect Logic] Object size: {object_width:.1f}x{object_height:.1f}mm - Aspect: {aspect_ratio:.2f} - {orientation.upper()}")
                 print(f"[Inspect Logic] Default direction: {default_direction_name}")
@@ -1166,10 +1166,10 @@ class XArmClickController:
         if width > 0 and height > 0:
             aspect_ratio = width / height
             if aspect_ratio > 1.5:
-                orientation = "vertical"  # Width > Height = x-axis aligned
+                orientation = "horizontal"  # Flat: width > height → UP/DOWN
                 grip_angle = angle
             elif aspect_ratio < 0.67:
-                orientation = "horizontal"  # Height > Width = y-axis aligned
+                orientation = "vertical"  # Tall: height > width → LEFT/RIGHT
                 grip_angle = angle + 90
             print(f"\n[CLICK DETECTED] Position: ({x:.1f}, {y:.1f}) mm - Button: {button.upper()}")
             print(f"[ORIENTATION] Size: {width:.1f}x{height:.1f}mm - Aspect: {aspect_ratio:.2f} - {orientation.upper()}")
