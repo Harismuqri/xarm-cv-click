@@ -1,329 +1,271 @@
 #!/usr/bin/env python3
 """
-Standalone Detection Monitor with Live Display
-- Uses FLIR camera 0
-- Runs YOLO detection independently
-- Shows live video feed with detection overlays
-- Displays both pixel and real-world coordinates
-- No dependencies on other scripts
+Lightweight Detection Display Monitor
+Reads detection data from yolo-mouse shared memory and displays in GUI
+No camera initialization, no YOLO processing - just displays data
 """
 
-import cv2
-import numpy as np
-import PySpin
-from ultralytics import YOLO
+import tkinter as tk
+from tkinter import ttk
+from multiprocessing import shared_memory
+import struct
 import json
-import pickle
-import os
-import sys
+import time
+import threading
 
-# Configuration
-CONFIG_FILE = "config.json"
-YOLO_MODEL_PATH = "D:\\2. yolo\\train30\\weights\\best.pt"
-HOMOGRAPHY_FILE = "homography_auto.pkl"
-DETECTION_CONFIDENCE = 0.8
+# Shared memory configuration
+DETECTION_SHM_NAME = "DetectionData"
+DETECTION_SHM_SIZE = 4096
 
-# Display colors
-COLOR_BOX = (0, 255, 0)  # Green
-COLOR_TEXT = (255, 255, 255)  # White
-COLOR_BG = (0, 0, 0)  # Black
-COLOR_VERTICAL = (255, 100, 100)  # Light blue for vertical
-COLOR_HORIZONTAL = (100, 255, 100)  # Light green for horizontal
-
-def load_config():
-    """Load configuration from JSON file."""
-    try:
-        with open(CONFIG_FILE, 'r') as f:
-            config = json.load(f)
-        print(f"[Config] Loaded from {CONFIG_FILE}")
-        return config
-    except Exception as e:
-        print(f"[Config] Error loading config: {e}")
-        return None
-
-def load_homography():
-    """Load homography transformation matrix."""
-    try:
-        with open(HOMOGRAPHY_FILE, 'rb') as f:
-            H = pickle.load(f)
-        print(f"[Homography] Loaded from {HOMOGRAPHY_FILE}")
-        return H
-    except Exception as e:
-        print(f"[Homography] Warning: Could not load homography matrix: {e}")
-        print("[Homography] Will show pixel coordinates only")
-        return None
-
-def initialize_camera(camera_index=0):
-    """Initialize FLIR camera."""
-    try:
-        system = PySpin.System.GetInstance()
-        cam_list = system.GetCameras()
+class DetectionDisplayMonitor:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Detection Monitor - Live Display")
+        self.root.geometry("1000x600")
         
-        if cam_list.GetSize() == 0:
-            print("[ERROR] No cameras detected!")
-            cam_list.Clear()
-            system.ReleaseInstance()
-            return None, None
+        self.shm = None
+        self.running = False
         
-        cam = cam_list.GetByIndex(camera_index)
-        cam.Init()
+        self.setup_ui()
+        self.connect_shared_memory()
+        self.start_updates()
         
-        # Configure camera
-        cam.AcquisitionMode.SetValue(PySpin.AcquisitionMode_Continuous)
-        cam.BeginAcquisition()
+    def setup_ui(self):
+        # Header
+        header = tk.Frame(self.root, bg="#2c3e50", height=60)
+        header.pack(fill=tk.X)
+        tk.Label(header, text="🔍 Real-Time Detection Monitor", 
+                font=("Arial", 18, "bold"), bg="#2c3e50", fg="white").pack(pady=15)
         
-        print(f"[Camera] Initialized camera index {camera_index}")
-        return system, cam
-    except Exception as e:
-        print(f"[ERROR] Camera initialization failed: {e}")
-        return None, None
-
-def convert_image_to_cv2(pyspin_image):
-    """Convert PySpin image to OpenCV format."""
-    try:
-        if pyspin_image.IsIncomplete():
+        # Status bar
+        status_frame = tk.Frame(self.root, bg="#34495e", height=40)
+        status_frame.pack(fill=tk.X)
+        
+        self.status_label = tk.Label(status_frame, text="Status: Connecting...", 
+                                     font=("Arial", 11), bg="#34495e", fg="white")
+        self.status_label.pack(side=tk.LEFT, padx=20, pady=10)
+        
+        self.fps_label = tk.Label(status_frame, text="Update: 0 Hz", 
+                                  font=("Arial", 11), bg="#34495e", fg="white")
+        self.fps_label.pack(side=tk.RIGHT, padx=20, pady=10)
+        
+        # Main content frame
+        content = tk.Frame(self.root)
+        content.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        
+        # Object count display
+        count_frame = tk.LabelFrame(content, text="Detection Summary", 
+                                    font=("Arial", 12, "bold"), padx=10, pady=10)
+        count_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        self.object_count_label = tk.Label(count_frame, text="Objects Detected: 0", 
+                                           font=("Arial", 16, "bold"), fg="#2c3e50")
+        self.object_count_label.pack()
+        
+        # Objects table
+        table_frame = tk.LabelFrame(content, text="Detected Objects", 
+                                    font=("Arial", 12, "bold"))
+        table_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Create treeview
+        columns = ("ID", "Position (mm)", "Angle (°)", "Size (mm)", "Aspect", "Orientation", "Robot Direction")
+        self.tree = ttk.Treeview(table_frame, columns=columns, show="headings", height=15)
+        
+        # Configure columns
+        widths = [50, 150, 80, 120, 80, 120, 150]
+        for col, width in zip(columns, widths):
+            self.tree.heading(col, text=col)
+            self.tree.column(col, width=width, anchor=tk.CENTER)
+        
+        # Add scrollbar
+        scrollbar = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=self.tree.yview)
+        self.tree.configure(yscroll=scrollbar.set)
+        
+        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10, pady=10)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=10)
+        
+        # Configure row colors
+        self.tree.tag_configure('vertical', background='#e3f2fd')
+        self.tree.tag_configure('horizontal', background='#e8f5e9')
+        self.tree.tag_configure('mixed', background='#fff9c4')
+        
+        # Control buttons
+        button_frame = tk.Frame(self.root, bg="#ecf0f1")
+        button_frame.pack(fill=tk.X, padx=20, pady=10)
+        
+        tk.Button(button_frame, text="🔄 Refresh", command=self.manual_refresh,
+                 bg="#3498db", fg="white", font=("Arial", 10, "bold"), 
+                 padx=20, pady=5).pack(side=tk.LEFT, padx=5)
+        
+        tk.Button(button_frame, text="🗑️ Clear", command=self.clear_display,
+                 bg="#95a5a6", fg="white", font=("Arial", 10, "bold"), 
+                 padx=20, pady=5).pack(side=tk.LEFT, padx=5)
+        
+        tk.Button(button_frame, text="❌ Exit", command=self.on_closing,
+                 bg="#e74c3c", fg="white", font=("Arial", 10, "bold"), 
+                 padx=20, pady=5).pack(side=tk.RIGHT, padx=5)
+        
+        # Instructions
+        info_label = tk.Label(button_frame, 
+                             text="📌 Make sure yolo-mouse-v2.py is running first!", 
+                             font=("Arial", 9), bg="#ecf0f1", fg="#7f8c8d")
+        info_label.pack(side=tk.LEFT, padx=20)
+        
+    def connect_shared_memory(self):
+        """Connect to shared memory."""
+        try:
+            self.shm = shared_memory.SharedMemory(name=DETECTION_SHM_NAME)
+            self.status_label.config(text="Status: Connected ✓", fg="#27ae60")
+            print(f"[✓] Connected to {DETECTION_SHM_NAME}")
+        except FileNotFoundError:
+            self.status_label.config(text="Status: Waiting for yolo-mouse...", fg="#e67e22")
+            print(f"[!] Waiting for {DETECTION_SHM_NAME}...")
+            # Retry connection in background
+            self.root.after(1000, self.connect_shared_memory)
+        except Exception as e:
+            self.status_label.config(text=f"Status: Error - {e}", fg="#c0392b")
+            print(f"[✗] Connection error: {e}")
+    
+    def read_detection_data(self):
+        """Read detection data from shared memory."""
+        if not self.shm:
             return None
         
-        image_converted = pyspin_image.Convert(PySpin.PixelFormat_BGR8, PySpin.HQ_LINEAR)
-        img_array = image_converted.GetNDArray()
-        return img_array
-    except Exception as e:
-        print(f"[ERROR] Image conversion failed: {e}")
-        return None
-
-def transform_to_real_world(points, H):
-    """Transform pixel coordinates to real-world mm coordinates."""
-    if H is None:
-        return None
-    try:
-        pts = np.array(points, dtype=np.float32).reshape(-1, 1, 2)
-        transformed = cv2.perspectiveTransform(pts, H)
-        return transformed.reshape(-1, 2)
-    except Exception as e:
-        return None
-
-def get_angle_from_obb(corners):
-    """Calculate angle from oriented bounding box corners."""
-    try:
-        vec = corners[1] - corners[0]
-        angle = np.degrees(np.arctan2(vec[1], vec[0]))
-        # Normalize to 0-180 range
-        if angle < 0:
-            angle += 180
-        return angle
-    except:
-        return 0
-
-def determine_orientation(width, height):
-    """Determine object orientation based on dimensions."""
-    if height == 0:
-        return "UNKNOWN", "N/A", (200, 200, 200)
-    
-    aspect_ratio = width / height
-    
-    if aspect_ratio > 1.5:
-        return "HORIZONTAL", "BACKWARD (180°)", COLOR_HORIZONTAL
-    elif aspect_ratio < 0.67:
-        return "VERTICAL", "LEFT (0°)", COLOR_VERTICAL
-    else:
-        return "MIXED", "AUTO", (200, 200, 100)
-
-def draw_text_with_background(img, text, pos, font_scale=0.6, thickness=2):
-    """Draw text with black background for better visibility."""
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    (text_width, text_height), baseline = cv2.getTextSize(text, font, font_scale, thickness)
-    
-    x, y = pos
-    # Draw background rectangle
-    cv2.rectangle(img, (x, y - text_height - 5), (x + text_width + 5, y + 5), COLOR_BG, -1)
-    # Draw text
-    cv2.putText(img, text, (x, y), font, font_scale, COLOR_TEXT, thickness, cv2.LINE_AA)
-    return text_height + 10
-
-def main():
-    """Main detection and display loop."""
-    print("\n" + "="*80)
-    print("STANDALONE DETECTION MONITOR")
-    print("="*80)
-    print("Press 'Q' to quit")
-    print("="*80 + "\n")
-    
-    # Load configuration
-    config = load_config()
-    if config:
-        model_path = config.get('yolo_model_path', YOLO_MODEL_PATH)
-        confidence = config.get('detection_confidence', DETECTION_CONFIDENCE)
-    else:
-        model_path = YOLO_MODEL_PATH
-        confidence = DETECTION_CONFIDENCE
-    
-    # Load YOLO model
-    print(f"[YOLO] Loading model from {model_path}")
-    try:
-        model = YOLO(model_path)
-        print("[YOLO] Model loaded successfully")
-    except Exception as e:
-        print(f"[ERROR] Failed to load YOLO model: {e}")
-        return
-    
-    # Load homography
-    H = load_homography()
-    
-    # Initialize camera
-    system, cam = initialize_camera(0)
-    if cam is None:
-        print("[ERROR] Cannot start without camera")
-        return
-    
-    print("\n[INFO] Starting detection monitor...")
-    print("[INFO] Detection overlay will be displayed on screen")
-    
-    try:
-        while True:
-            # Get camera frame
-            image_result = cam.GetNextImage()
-            if image_result.IsIncomplete():
-                image_result.Release()
-                continue
+        try:
+            # Read 4-byte length prefix
+            length = struct.unpack('I', bytes(self.shm.buf[:4]))[0]
             
-            frame = convert_image_to_cv2(image_result)
-            image_result.Release()
+            if length == 0 or length > DETECTION_SHM_SIZE - 4:
+                return None
             
-            if frame is None:
-                continue
+            # Read JSON data
+            json_bytes = bytes(self.shm.buf[4:4+length])
+            json_str = json_bytes.decode('utf-8')
             
-            # Run YOLO detection
-            results = model(frame, conf=confidence, verbose=False)
-            
-            # Create display frame
-            display_frame = frame.copy()
-            
-            # Process detections
-            if len(results) > 0 and hasattr(results[0], 'obb') and results[0].obb is not None:
-                obb_preds = results[0].obb
+            data = json.loads(json_str)
+            return data
+        except Exception as e:
+            return None
+    
+    def determine_orientation(self, width, height):
+        """Determine object orientation based on dimensions."""
+        if height == 0:
+            return "UNKNOWN", "N/A", "mixed"
+        
+        aspect_ratio = width / height
+        
+        if aspect_ratio > 1.5:
+            return "HORIZONTAL", "BACKWARD (180°)", "horizontal"
+        elif aspect_ratio < 0.67:
+            return "VERTICAL", "LEFT (0°)", "vertical"
+        else:
+            return "MIXED", "AUTO", "mixed"
+    
+    def update_display(self):
+        """Update display with current detection data."""
+        data = self.read_detection_data()
+        
+        if not data:
+            return
+        
+        # Update object count
+        objects = data.get("objects", {})
+        count = len(objects)
+        self.object_count_label.config(text=f"Objects Detected: {count}")
+        
+        # Clear existing items
+        self.tree.delete(*self.tree.get_children())
+        
+        # Populate tree with objects
+        for obj_id, obj in sorted(objects.items()):
+            try:
+                x = obj.get('x', 0)
+                y = obj.get('y', 0)
+                angle = obj.get('angle', 0)
+                width = obj.get('width', 0)
+                height = obj.get('height', 0)
                 
-                for i, obb in enumerate(obb_preds, 1):
-                    try:
-                        # Get bounding box corners
-                        if hasattr(obb, "xyxyxyxy"):
-                            corners = obb.xyxyxyxy.cpu().numpy().reshape(-1, 2)
-                        elif hasattr(obb, "xyxy"):
-                            corners = obb.xyxy.cpu().numpy().reshape(-1, 2)
-                        else:
-                            continue
-                        
-                        # Calculate properties
-                        center_px = np.mean(corners, axis=0)
-                        angle = get_angle_from_obb(corners)
-                        
-                        # Calculate dimensions in pixels
-                        side1 = np.linalg.norm(corners[1] - corners[0])
-                        side2 = np.linalg.norm(corners[2] - corners[1])
-                        
-                        # Determine width and height based on angle
-                        angle_normalized = angle % 180
-                        if 45 <= angle_normalized <= 135:
-                            width_px = min(side1, side2)
-                            height_px = max(side1, side2)
-                        else:
-                            width_px = max(side1, side2)
-                            height_px = min(side1, side2)
-                        
-                        # Transform to real-world coordinates
-                        if H is not None:
-                            corners_real = transform_to_real_world(corners, H)
-                            center_real = transform_to_real_world([center_px], H)
-                            
-                            if corners_real is not None and center_real is not None:
-                                side1_real = np.linalg.norm(corners_real[1] - corners_real[0])
-                                side2_real = np.linalg.norm(corners_real[2] - corners_real[1])
-                                
-                                if 45 <= angle_normalized <= 135:
-                                    width_mm = min(side1_real, side2_real)
-                                    height_mm = max(side1_real, side2_real)
-                                else:
-                                    width_mm = max(side1_real, side2_real)
-                                    height_mm = min(side1_real, side2_real)
-                                
-                                x_mm, y_mm = center_real[0]
-                            else:
-                                width_mm = height_mm = x_mm = y_mm = 0
-                        else:
-                            width_mm = height_mm = x_mm = y_mm = 0
-                        
-                        # Determine orientation
-                        if width_mm > 0 and height_mm > 0:
-                            orientation, direction, color = determine_orientation(width_mm, height_mm)
-                            aspect = width_mm / height_mm
-                        else:
-                            orientation, direction, color = determine_orientation(width_px, height_px)
-                            aspect = width_px / height_px if height_px > 0 else 0
-                        
-                        # Draw bounding box
-                        corners_int = corners.astype(int)
-                        cv2.polylines(display_frame, [corners_int], isClosed=True, color=color, thickness=3)
-                        
-                        # Draw center point
-                        center_int = center_px.astype(int)
-                        cv2.circle(display_frame, tuple(center_int), 6, color, -1)
-                        cv2.circle(display_frame, tuple(center_int), 6, COLOR_TEXT, 2)
-                        
-                        # Prepare text information
-                        text_x = corners_int[0][0]
-                        text_y = corners_int[0][1] - 10
-                        
-                        # Draw all information
-                        text_y -= draw_text_with_background(display_frame, f"Object {i}", (text_x, text_y))
-                        text_y -= draw_text_with_background(display_frame, f"Angle: {angle:.1f}°", (text_x, text_y))
-                        
-                        if H is not None and width_mm > 0:
-                            text_y -= draw_text_with_background(display_frame, 
-                                f"Pos: ({x_mm:.1f}, {y_mm:.1f}) mm", (text_x, text_y))
-                            text_y -= draw_text_with_background(display_frame, 
-                                f"Size: {width_mm:.1f}×{height_mm:.1f} mm", (text_x, text_y))
-                        else:
-                            text_y -= draw_text_with_background(display_frame, 
-                                f"Pos: ({center_px[0]:.0f}, {center_px[1]:.0f}) px", (text_x, text_y))
-                            text_y -= draw_text_with_background(display_frame, 
-                                f"Size: {width_px:.0f}×{height_px:.0f} px", (text_x, text_y))
-                        
-                        text_y -= draw_text_with_background(display_frame, 
-                            f"Aspect: {aspect:.2f}", (text_x, text_y))
-                        text_y -= draw_text_with_background(display_frame, 
-                            f"Orient: {orientation}", (text_x, text_y))
-                        text_y -= draw_text_with_background(display_frame, 
-                            f"Robot: {direction}", (text_x, text_y))
-                    
-                    except Exception as e:
-                        print(f"[ERROR] Processing detection {i}: {e}")
-                        continue
-            
-            # Display frame
-            cv2.imshow("Detection Monitor - Press 'Q' to quit", display_frame)
-            
-            # Check for quit
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord('q') or key == ord('Q'):
-                print("\n[INFO] Quit requested")
+                # Skip empty objects
+                if x == 0 and y == 0:
+                    continue
+                
+                # Determine orientation
+                orientation, direction, tag = self.determine_orientation(width, height)
+                aspect = width / height if height > 0 else 0
+                
+                # Insert into tree
+                self.tree.insert("", tk.END, 
+                               values=(
+                                   obj_id,
+                                   f"({x:.1f}, {y:.1f})",
+                                   f"{angle:.1f}",
+                                   f"{width:.1f} × {height:.1f}",
+                                   f"{aspect:.2f}",
+                                   orientation,
+                                   direction
+                               ),
+                               tags=(tag,))
+            except Exception as e:
+                continue
+    
+    def manual_refresh(self):
+        """Manual refresh button handler."""
+        self.update_display()
+    
+    def clear_display(self):
+        """Clear the display."""
+        self.tree.delete(*self.tree.get_children())
+        self.object_count_label.config(text="Objects Detected: 0")
+    
+    def start_updates(self):
+        """Start automatic updates."""
+        self.running = True
+        self.update_thread = threading.Thread(target=self.update_loop, daemon=True)
+        self.update_thread.start()
+    
+    def update_loop(self):
+        """Background update loop."""
+        last_update = time.time()
+        update_count = 0
+        
+        while self.running:
+            try:
+                self.root.after(0, self.update_display)
+                time.sleep(0.1)  # 10 Hz
+                
+                # Calculate FPS
+                update_count += 1
+                if time.time() - last_update >= 1.0:
+                    fps = update_count / (time.time() - last_update)
+                    self.fps_label.config(text=f"Update: {fps:.1f} Hz")
+                    update_count = 0
+                    last_update = time.time()
+            except:
                 break
     
-    except KeyboardInterrupt:
-        print("\n[INFO] Stopped by user")
-    except Exception as e:
-        print(f"\n[ERROR] Runtime error: {e}")
-    finally:
-        # Cleanup
-        print("\n[INFO] Cleaning up...")
-        if cam is not None:
-            cam.EndAcquisition()
-            cam.DeInit()
-            del cam
-        if system is not None:
-            cam_list = system.GetCameras()
-            cam_list.Clear()
-            system.ReleaseInstance()
-        cv2.destroyAllWindows()
-        print("[INFO] Shutdown complete")
+    def on_closing(self):
+        """Clean up on exit."""
+        self.running = False
+        if self.shm:
+            try:
+                self.shm.close()
+                print("[✓] Disconnected from shared memory")
+            except:
+                pass
+        self.root.destroy()
+
+def main():
+    print("\n" + "="*70)
+    print("LIGHTWEIGHT DETECTION DISPLAY MONITOR")
+    print("="*70)
+    print("This monitor displays detection data from yolo-mouse-v2.py")
+    print("No camera access, no YOLO processing - just displays data")
+    print("="*70 + "\n")
+    
+    root = tk.Tk()
+    app = DetectionDisplayMonitor(root)
+    root.protocol("WM_DELETE_WINDOW", app.on_closing)
+    root.mainloop()
 
 if __name__ == "__main__":
     main()

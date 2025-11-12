@@ -19,7 +19,7 @@ with open(config_path, 'r') as f:
     CONFIG = json.load(f)
 
 camera_config = CONFIG.get("camera_config", {})
-DETECTION_CAMERA_INDEX = camera_config.get("detection_camera_index", 1)
+DETECTION_CAMERA_INDEX = camera_config.get("detection_camera_index", 0)
 
 workspace_config = CONFIG.get("workspace", {})
 WORKSPACE_WIDTH = workspace_config.get("width", 300)
