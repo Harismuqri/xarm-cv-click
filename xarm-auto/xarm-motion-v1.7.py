@@ -478,31 +478,10 @@ class XArmController:
         angle_norm = object_angle % 180
         
         # Apply rotation based on angle range
-        if 0 <= angle_norm < 20:
-            # Angle 0-79°: Add 270° rotation
+        if 0 <= angle_norm < 80:
+            # Angle 0-79°: Add 0° rotation
             camera_rotation = 0
-        elif 20 <= angle_norm < 40:
-            # Angle 0-79°: Add 270° rotation
-            camera_rotation = 0
-        elif 40 <= angle_norm < 60:
-            # Angle 0-79°: Add 270° rotation
-            camera_rotation = 0
-        elif 60 <= angle_norm < 80:
-            # Angle 0-79°: Add 270° rotation
-            camera_rotation = 0
-        elif 80 <= angle_norm < 100:
-            # Angle 0-79°: Add 270° rotation
-            camera_rotation = 0
-        elif 100 <= angle_norm < 120:
-            # Angle 0-79°: Add 270° rotation
-            camera_rotation = 0
-        elif 120 <= angle_norm < 140:
-            # Angle 0-79°: Add 270° rotation
-            camera_rotation = 0
-        elif 140 <= angle_norm < 160:
-            # Angle 0-79°: Add 270° rotation
-            camera_rotation = 0
-        else:  # 160-180°
+        else:  # 80-180°
             # Angle 80-180°: Add 180° rotation
             camera_rotation = 180
         
