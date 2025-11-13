@@ -479,10 +479,10 @@ class XArmController:
         
         # Apply rotation based on angle range
         if 0 <= angle_norm < 80:
-            # Angle 0-79°: Add 0° rotation
+            # Angle 0-79°: Add 270° rotation
             camera_rotation = 0
         else:  # 80-180°
-            # Angle 80-180°: Add 180° rotation
+            # Angle 80-180°: Add 90° rotation
             camera_rotation = 180
         
         return object_angle + camera_rotation
@@ -842,6 +842,8 @@ class XArmController:
             offset_x, offset_y: Camera offset from gripper center point (mm)
         """
         try:
+            import math
+            
             # v1.7: Separate camera rotation from position calculation
             # offset_position is used ONLY for position offset calculation
             # camera_angle is used ONLY for camera/gripper rotation
@@ -852,6 +854,7 @@ class XArmController:
             offset_magnitude = math.sqrt(offset_x**2 + offset_y**2)
             
             # Determine object orientation
+            orientation = "unknown"
             default_direction_name = "Forward"
             # v1.7: Determine robot approach direction based on ANGLE, not orientation
             default_direction_offset = 0  # Offset from offset_position
@@ -988,12 +991,7 @@ class XArmController:
             gripper_det_x, gripper_det_y = best_position
             offset_position_angle = best_angle  # The selected position offset angle
             
-            # v1.7: Calculate robot yaw = object_angle + default_direction_offset
-            # The offset was already determined based on angle range
-            robot_yaw = object_angle + default_direction_offset
-            
             print(f"[Inspect] ✓ SELECTED: Position ({gripper_det_x:.1f}, {gripper_det_y:.1f}) mm, Offset angle: {offset_position_angle:.1f}°")
-            print(f"[Inspect] Robot yaw (position): {object_angle:.1f}° (object) + {default_direction_offset:.1f}° (offset) = {camera_angle:.1f}°")
             print(f"[Inspect] Camera rotation: {camera_angle:.1f}°")
             
             # Transform gripper position to robot coordinates
@@ -1021,7 +1019,7 @@ class XArmController:
                 z=self.safe_height,
                 roll=180,
                 pitch=0,
-                yaw=camera_angle,
+                yaw=90,
                 speed=self.config.get("tcp_speed", 300),
                 wait=True
             )
@@ -1029,7 +1027,7 @@ class XArmController:
                 print(f"[Inspect] ❌ Failed at step 1")
                 return False
 
-            # Step 2: Move to inspection position with calculated robot yaw
+            # Step 2: Move to inspection position with camera angle
             print(f"[Inspect] Step 2/2: Moving to inspection position (yaw: {camera_angle:.1f}°)...")
             code = self._arm.set_position(
                 x=robot_x,
@@ -1037,7 +1035,7 @@ class XArmController:
                 z=self.inspect_height,
                 roll=180,
                 pitch=0,
-                yaw=camera_angle,
+                yaw=camera_angle,  # v1.7: Using camera_angle instead of robot_yaw
                 speed=self.config.get("tcp_speed", 300),
                 wait=True
             )
