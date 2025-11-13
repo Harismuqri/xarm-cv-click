@@ -1,6 +1,7 @@
 """
 Robot Keyboard Control with YOLO Detection Visual
 Combines keyboard control with object detection visualization
+Now includes homography transformation to show mm coordinates
 """
 
 import cv2
@@ -202,11 +203,11 @@ class RobotKeyboardDetection:
                     with open(filename, "rb") as f:
                         self.H = pickle.load(f)
                     self.H_inv = np.linalg.inv(self.H)
-                    print(f"[Camera] ✅ Loaded {filename}")
+                    print(f"[Homography] ✅ Loaded {filename}")
                     return True
 
-            print("[Camera] ⚠️  No homography found")
-            return False
+            print("[Homography] ⚠️  No homography found - will show pixel coordinates only")
+            return True
         except Exception as e:
             print(f"[Camera] Error: {e}")
             return False
@@ -333,7 +334,7 @@ class RobotKeyboardDetection:
             [0, 300]
         ], dtype=np.float32).reshape(-1, 1, 2)
         box_img = cv2.perspectiveTransform(box_real, self.H_inv).reshape(-1, 2).astype(int)
-        cv2.polylines(frame, [box_img], isClosed=True, color=(0, 0, 0), thickness=2)  # Thinner border
+        cv2.polylines(frame, [box_img], isClosed=True, color=(255, 255, 255), thickness=2)
 
     def draw_robot_position(self, frame):
         """Draw robot position on frame."""
@@ -349,10 +350,10 @@ class RobotKeyboardDetection:
         pos_img = cv2.perspectiveTransform(pos_real, self.H_inv).reshape(-1, 2).astype(int)
         pos_pt = tuple(pos_img[0])
 
-        # Draw robot position - styled like center marker but in green
-        cv2.circle(frame, pos_pt, 12, (0, 255, 0), 3)  # Green outer circle
-        cv2.circle(frame, pos_pt, 6, (0, 255, 0), -1)  # Green filled inner
-        cv2.drawMarker(frame, pos_pt, (255, 255, 255), cv2.MARKER_CROSS, 20, 2)  # White crosshair
+        # Draw robot position
+        cv2.circle(frame, pos_pt, 12, (0, 255, 0), 3)
+        cv2.circle(frame, pos_pt, 6, (0, 255, 0), -1)
+        cv2.drawMarker(frame, pos_pt, (255, 255, 255), cv2.MARKER_CROSS, 20, 2)
 
         # Label
         cv2.putText(frame, "ROBOT", (pos_pt[0] + 18, pos_pt[1] - 10),
@@ -374,7 +375,7 @@ class RobotKeyboardDetection:
         print("  s      : STOP robot (emergency stop)")
         print("  q/ESC  : Quit (robot stays powered)")
         print("\nMOUSE CONTROLS:")
-        print("  Click  : Show coordinates at clicked position")
+        print("  Click  : Show coordinates (pixel + mm)")
         print("="*70 + "\n")
 
         window_name = "Robot Control with Detection"
@@ -445,42 +446,45 @@ class RobotKeyboardDetection:
                         continue
 
                     # Check if inside workspace
-                    transformed = self.transform_points(corners, self.H)
-                    is_inside = self.is_inside_box(transformed)
+                    if self.H is not None:
+                        transformed = self.transform_points(corners, self.H)
+                        is_inside = self.is_inside_box(transformed)
 
-                    if is_inside:
-                        color = (0, 255, 0)  # Green
+                        if is_inside:
+                            color = (0, 255, 0)  # Green
 
-                        # Calculate object properties
-                        center = np.mean(transformed, axis=0)
-                        angle = self.get_angle(transformed)
+                            # Calculate object properties
+                            center = np.mean(transformed, axis=0)
+                            angle = self.get_angle(transformed)
 
-                        side1 = np.linalg.norm(transformed[1] - transformed[0])
-                        side2 = np.linalg.norm(transformed[2] - transformed[1])
-                        width_mm = round(max(side1, side2), 1)
-                        height_mm = round(min(side1, side2), 1)
+                            side1 = np.linalg.norm(transformed[1] - transformed[0])
+                            side2 = np.linalg.norm(transformed[2] - transformed[1])
+                            width_mm = round(max(side1, side2), 1)
+                            height_mm = round(min(side1, side2), 1)
 
-                        x_mm, y_mm = round(center[0], 1), round(center[1], 1)
-                        angle_deg = round(angle, 2)
+                            x_mm, y_mm = round(center[0], 1), round(center[1], 1)
+                            angle_deg = round(angle, 2)
 
-                        # Store object data for click detection
-                        object_data_list.append({
-                            'id': i,
-                            'corners': corners.astype(int),
-                            'x_mm': x_mm,
-                            'y_mm': y_mm,
-                            'angle': angle_deg,
-                            'width': width_mm,
-                            'height': height_mm
-                        })
+                            # Store object data for click detection
+                            object_data_list.append({
+                                'id': i,
+                                'corners': corners.astype(int),
+                                'x_mm': x_mm,
+                                'y_mm': y_mm,
+                                'angle': angle_deg,
+                                'width': width_mm,
+                                'height': height_mm
+                            })
 
-                        # Draw center point
-                        center_img = np.mean(corners, axis=0).astype(int)
-                        cv2.circle(annotated_frame, tuple(center_img), 5, (0, 0, 255), -1)  # Red
-                        cv2.circle(annotated_frame, tuple(center_img), 5, (255, 255, 255), 1)
-                        cv2.drawMarker(annotated_frame, tuple(center_img), (255, 255, 255), cv2.MARKER_CROSS, 10, 1)
+                            # Draw center point
+                            center_img = np.mean(corners, axis=0).astype(int)
+                            cv2.circle(annotated_frame, tuple(center_img), 5, (0, 0, 255), -1)
+                            cv2.circle(annotated_frame, tuple(center_img), 5, (255, 255, 255), 1)
+                            cv2.drawMarker(annotated_frame, tuple(center_img), (255, 255, 255), cv2.MARKER_CROSS, 10, 1)
+                        else:
+                            color = (0, 0, 255)  # Red
                     else:
-                        color = (0, 0, 255)  # Red
+                        color = (128, 128, 128)  # Gray (no homography)
 
                     # Draw border
                     corners_int = corners.astype(int)
@@ -495,11 +499,15 @@ class RobotKeyboardDetection:
                 if mouse_clicked:
                     mouse_clicked = False
 
-                    # Convert click position to real-world coordinates
-                    click_pt = np.array([[mouse_x, mouse_y]], dtype=np.float32).reshape(-1, 1, 2)
-                    real_coord = cv2.perspectiveTransform(click_pt, self.H).reshape(-1, 2)
-                    click_x_mm = real_coord[0][0]
-                    click_y_mm = real_coord[0][1]
+                    # Convert click position to real-world coordinates if homography available
+                    if self.H is not None:
+                        click_pt = np.array([[mouse_x, mouse_y]], dtype=np.float32).reshape(-1, 1, 2)
+                        real_coord = cv2.perspectiveTransform(click_pt, self.H).reshape(-1, 2)
+                        click_x_mm = real_coord[0][0]
+                        click_y_mm = real_coord[0][1]
+                    else:
+                        click_x_mm = mouse_x
+                        click_y_mm = mouse_y
 
                     # Check if clicked on any object
                     clicked_on_object = False
@@ -508,17 +516,22 @@ class RobotKeyboardDetection:
                             selected_object = obj_data
                             show_coordinates = True
                             clicked_on_object = True
-                            button_action = {"left": "at", "middle": "PICK at", "right": "PLACE at"}
-                            print(f"[CLICK] {button_action.get(mouse_button, '')} Object {obj_data['id']}: ({obj_data['x_mm']:.1f}, {obj_data['y_mm']:.1f}) mm")
+                            if self.H is not None:
+                                print(f"[CLICK] Object {obj_data['id']}: ({obj_data['x_mm']:.1f}, {obj_data['y_mm']:.1f}) mm")
+                            else:
+                                print(f"[CLICK] Object {obj_data['id']}: Pixel ({mouse_x}, {mouse_y})")
                             break
 
                     # If clicked on empty space, show clicked position
                     if not clicked_on_object:
                         selected_object = None
                         show_coordinates = True
-                        in_workspace = (0 <= click_x_mm <= 300 and 0 <= click_y_mm <= 300)
-                        status = "inside workspace" if in_workspace else "outside workspace"
-                        print(f"[CLICK] Coordinates: ({click_x_mm:.1f}, {click_y_mm:.1f}) mm - {status}")
+                        if self.H is not None:
+                            in_workspace = (0 <= click_x_mm <= 300 and 0 <= click_y_mm <= 300)
+                            status = "inside workspace" if in_workspace else "outside workspace"
+                            print(f"[CLICK] Coordinates: ({click_x_mm:.1f}, {click_y_mm:.1f}) mm - {status}")
+                        else:
+                            print(f"[CLICK] Pixel: ({mouse_x}, {mouse_y})")
 
                 # Draw info panel if showing coordinates
                 if show_coordinates:
@@ -526,11 +539,16 @@ class RobotKeyboardDetection:
                         # Show object info
                         info_lines = [
                             f"Object ID: {selected_object['id']}",
-                            f"Position: ({selected_object['x_mm']:.1f}, {selected_object['y_mm']:.1f}) mm",
-                            f"Angle: {selected_object['angle']:.1f} degrees",
-                            f"Width: {selected_object['width']:.1f} mm",
-                            f"Height: {selected_object['height']:.1f} mm"
+                            f"Pixel: ({mouse_x}, {mouse_y})"
                         ]
+                        
+                        if self.H is not None:
+                            info_lines.extend([
+                                f"Position: ({selected_object['x_mm']:.1f}, {selected_object['y_mm']:.1f}) mm",
+                                f"Angle: {selected_object['angle']:.1f} degrees",
+                                f"Width: {selected_object['width']:.1f} mm",
+                                f"Height: {selected_object['height']:.1f} mm"
+                            ])
 
                         # Draw info panel
                         draw_info_panel(annotated_frame, mouse_x + 10, mouse_y + 10, info_lines, f"Object {selected_object['id']}")
@@ -539,16 +557,15 @@ class RobotKeyboardDetection:
                         cv2.polylines(annotated_frame, [selected_object['corners']], isClosed=True, color=(0, 255, 255), thickness=3)
                     else:
                         # Show coordinate info at clicked position
-                        click_pt = np.array([[mouse_x, mouse_y]], dtype=np.float32).reshape(-1, 1, 2)
-                        real_coord = cv2.perspectiveTransform(click_pt, self.H).reshape(-1, 2)
-
-                        info_lines = [
-                            f"Pixel: ({mouse_x}, {mouse_y})",
-                            f"Real: ({real_coord[0][0]:.1f}, {real_coord[0][1]:.1f}) mm"
-                        ]
-
-                        in_workspace = (0 <= real_coord[0][0] <= 300 and 0 <= real_coord[0][1] <= 300)
-                        info_lines.append(f"In workspace: {'Yes' if in_workspace else 'No'}")
+                        info_lines = [f"Pixel: ({mouse_x}, {mouse_y})"]
+                        
+                        if self.H is not None:
+                            click_pt = np.array([[mouse_x, mouse_y]], dtype=np.float32).reshape(-1, 1, 2)
+                            real_coord = cv2.perspectiveTransform(click_pt, self.H).reshape(-1, 2)
+                            info_lines.append(f"Real: ({real_coord[0][0]:.1f}, {real_coord[0][1]:.1f}) mm")
+                            
+                            in_workspace = (0 <= real_coord[0][0] <= 300 and 0 <= real_coord[0][1] <= 300)
+                            info_lines.append(f"In workspace: {'Yes' if in_workspace else 'No'}")
 
                         draw_info_panel(annotated_frame, mouse_x + 10, mouse_y + 10, info_lines, "Coordinates")
 
