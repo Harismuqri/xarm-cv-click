@@ -387,7 +387,7 @@ class RobotKeyboardDetection:
         # Configure window size and position
         # window_config = self.config.get("window_config", {})
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
-        cv2.resizeWindow(window_name, 1440, 1080)
+        cv2.resizeWindow(window_name, 960, 720)
         cv2.moveWindow(window_name, 0, 0)
         
         cv2.setMouseCallback(window_name, mouse_callback)
