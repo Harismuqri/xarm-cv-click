@@ -481,7 +481,7 @@ class XArmController:
         - Object at 90° (horizontal) → Camera at 180° (perpendicular)
         """
         # Rotate 90° clockwise from object angle
-        inspect_angle = object_angle + 90
+        inspect_angle = object_angle #+ 90
 
         print(f"[Inspect Logic] Object angle: {object_angle:.1f}°")
         print(f"[Inspect Logic] Camera angle: {inspect_angle:.1f}° (object + 90° clockwise)")

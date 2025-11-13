@@ -26,8 +26,8 @@
     "yolo_model_path": "D:\\2. yolo\\train30\\weights\\best.pt",
     "detection_confidence": 0.8,
     "camera_config": {
-        "detection_camera_index": 1,
-        "inspection_camera_index": 0
+        "detection_camera_index": 0,
+        "inspection_camera_index": 1
     },
     "camera_offset": {
         "offset_x": 7.91,
