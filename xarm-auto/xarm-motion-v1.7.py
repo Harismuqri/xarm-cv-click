@@ -854,7 +854,6 @@ class XArmController:
             offset_magnitude = math.sqrt(offset_x**2 + offset_y**2)
             
             # Determine object orientation
-            orientation = "unknown"
             default_direction_name = "Forward"
             # v1.7: Determine robot approach direction based on ANGLE, not orientation
             default_direction_offset = 0  # Offset from offset_position
@@ -1019,7 +1018,7 @@ class XArmController:
                 z=self.safe_height,
                 roll=180,
                 pitch=0,
-                yaw=90,
+                yaw=camera_angle,
                 speed=self.config.get("tcp_speed", 300),
                 wait=True
             )

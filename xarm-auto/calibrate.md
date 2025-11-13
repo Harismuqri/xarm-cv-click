@@ -38,13 +38,11 @@ camera offset = (robot - camera)
 
 **camera offset:**
 
-offset\_x: 7.9,
+offset\_x: 7.91,
 
 offset\_y: -88.5,
 
 offset\_error: 0,
-
-inspection\_angle\_offset: 180
 
 
 

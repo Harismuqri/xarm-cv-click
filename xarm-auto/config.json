@@ -30,8 +30,8 @@
         "inspection_camera_index": 1
     },
     "camera_offset": {
-        "offset_x": 7.91,
-        "offset_y": -88.5,
+        "offset_x": 7,
+        "offset_y": 92.9,
         "offset_error": 0
     },
     "window_config": {
