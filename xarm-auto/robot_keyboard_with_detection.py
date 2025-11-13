@@ -197,13 +197,17 @@ class RobotKeyboardDetection:
             self.camera.Init()
             self.camera.BeginAcquisition()
 
-            # Load homography
+            # Load homography - get script directory first
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            
             for filename in ["homography_auto.pkl", "homography_calibration.pkl"]:
-                if os.path.exists(filename):
-                    with open(filename, "rb") as f:
+                full_path = os.path.join(script_dir, filename)
+                if os.path.exists(full_path):
+                    with open(full_path, "rb") as f:
                         self.H = pickle.load(f)
                     self.H_inv = np.linalg.inv(self.H)
                     print(f"[Homography] ✅ Loaded {filename}")
+                    print(f"[Homography] File: {full_path}")
                     return True
 
             print("[Homography] ⚠️  No homography found - will show pixel coordinates only")
@@ -379,7 +383,13 @@ class RobotKeyboardDetection:
         print("="*70 + "\n")
 
         window_name = "Robot Control with Detection"
-        cv2.namedWindow(window_name)
+        
+        # Configure window size and position
+        # window_config = self.config.get("window_config", {})
+        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+        cv2.resizeWindow(window_name, 1440, 1080)
+        cv2.moveWindow(window_name, 0, 0)
+        
         cv2.setMouseCallback(window_name, mouse_callback)
 
         # Try to use keyboard input
