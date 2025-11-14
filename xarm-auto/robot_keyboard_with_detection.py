@@ -130,6 +130,10 @@ class RobotKeyboardDetection:
         self.camera_system = None
         self.H = None
         self.H_inv = None
+        
+        # Inspection mode
+        self.show_inspection = False
+        self.inspection_camera = None
 
         self.connect_robot()
         self.initialize_robot()
@@ -214,6 +218,27 @@ class RobotKeyboardDetection:
             return True
         except Exception as e:
             print(f"[Camera] Error: {e}")
+            return False
+
+    def initialize_inspection_camera(self):
+        """Initialize inspection camera."""
+        try:
+            print("[Inspection Camera] Initializing...")
+            if self.camera_system is None:
+                self.camera_system = PySpin.System.GetInstance()
+            
+            cam_list = self.camera_system.GetCameras()
+            if cam_list.GetSize() < 2:
+                print("[Inspection Camera] ❌ Second camera not found")
+                return False
+
+            self.inspection_camera = cam_list.GetByIndex(1)
+            self.inspection_camera.Init()
+            self.inspection_camera.BeginAcquisition()
+            print("[Inspection Camera] ✅ Ready")
+            return True
+        except Exception as e:
+            print(f"[Inspection Camera] Error: {e}")
             return False
 
     def update_current_position(self):
@@ -302,6 +327,25 @@ class RobotKeyboardDetection:
         except:
             return None
 
+    def get_inspection_camera_frame(self):
+        """Get inspection camera frame."""
+        if self.inspection_camera is None:
+            return None
+        try:
+            image = self.inspection_camera.GetNextImage()
+            if image.IsIncomplete():
+                image.Release()
+                return None
+
+            img_array = image.GetNDArray()
+            image.Release()
+
+            if len(img_array.shape) == 2:
+                return cv2.cvtColor(img_array, cv2.COLOR_GRAY2BGR)
+            return img_array
+        except:
+            return None
+
     def transform_points(self, points, H):
         """Transform points using homography."""
         pts = np.array(points, dtype=np.float32).reshape(-1, 1, 2)
@@ -338,7 +382,7 @@ class RobotKeyboardDetection:
             [0, 300]
         ], dtype=np.float32).reshape(-1, 1, 2)
         box_img = cv2.perspectiveTransform(box_real, self.H_inv).reshape(-1, 2).astype(int)
-        cv2.polylines(frame, [box_img], isClosed=True, color=(255, 255, 255), thickness=2)
+        cv2.polylines(frame, [box_img], isClosed=True, color=(0, 0, 0), thickness=2)
 
     def draw_robot_position(self, frame):
         """Draw robot position on frame."""
@@ -376,6 +420,7 @@ class RobotKeyboardDetection:
         print("  1/2/3  : Step size (1mm/10mm/50mm)")
         print("  h      : Home position")
         print("  p      : Print position")
+        print("  i      : Toggle inspection camera view")
         print("  s      : STOP robot (emergency stop)")
         print("  q/ESC  : Quit (robot stays powered)")
         print("\nMOUSE CONTROLS:")
@@ -385,9 +430,9 @@ class RobotKeyboardDetection:
         window_name = "Robot Control with Detection"
         
         # Configure window size and position
-        # window_config = self.config.get("window_config", {})
+        window_config = self.config.get("window_config", {})
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
-        cv2.resizeWindow(window_name, 960, 720)
+        cv2.resizeWindow(window_name, 1440, 1080)
         cv2.moveWindow(window_name, 0, 0)
         
         cv2.setMouseCallback(window_name, mouse_callback)
@@ -436,6 +481,18 @@ class RobotKeyboardDetection:
                 frame = self.get_camera_frame()
                 if frame is None:
                     continue
+
+                # If inspection mode is ON, get inspection frame and stack vertically
+                if self.show_inspection:
+                    inspection_frame = self.get_inspection_camera_frame()
+                    if inspection_frame is not None:
+                        # Make sure both frames have the same width
+                        if frame.shape[1] != inspection_frame.shape[1]:
+                            # Resize inspection frame to match detection frame width
+                            inspection_frame = cv2.resize(inspection_frame, (frame.shape[1], inspection_frame.shape[0]))
+                        
+                        # Stack vertically: detection on top, inspection on bottom
+                        frame = np.vstack([frame, inspection_frame])
 
                 # Run YOLO detection
                 results = model(frame, conf=0.7)
@@ -661,6 +718,18 @@ class RobotKeyboardDetection:
                         print(f"\n[POSITION]")
                         print(f"  Robot:  ({self.current_x:.1f}, {self.current_y:.1f}, {self.current_z:.1f}) mm")
                         print(f"  Camera: ({camera_x:.1f}, {camera_y:.1f}) mm\n")
+
+                elif key and key.lower() == 'i':
+                    self.show_inspection = not self.show_inspection
+                    
+                    # Initialize inspection camera on first use
+                    if self.show_inspection and self.inspection_camera is None:
+                        if not self.initialize_inspection_camera():
+                            print("[ERROR] Failed to initialize inspection camera")
+                            self.show_inspection = False
+                    
+                    status = "ON" if self.show_inspection else "OFF"
+                    print(f"[INFO] Inspection camera: {status}")
 
                 elif key and key.lower() == 's':
                     self.stop_robot()
