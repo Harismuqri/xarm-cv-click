@@ -1,0 +1,789 @@
+"""
+Robot Keyboard Control with YOLO Detection Visual
+Combines keyboard control with object detection visualization
+Now includes homography transformation to show mm coordinates
+"""
+
+import cv2
+import numpy as np
+import pickle
+from ultralytics import YOLO
+import PySpin
+import time
+import json
+import os
+from xarm.wrapper import XArmAPI
+import sys
+
+# Load YOLO model
+model = YOLO("D:\\2. yolo\\train30\\weights\\best.pt")
+model.overrides['verbose'] = False
+
+# Global variables for mouse interaction
+mouse_x, mouse_y = 0, 0
+mouse_clicked = False
+mouse_button = "left"
+selected_object = None
+show_coordinates = False
+
+def mouse_callback(event, x, y, flags, param):
+    """Handle mouse events on the detection window"""
+    global mouse_x, mouse_y, mouse_clicked, show_coordinates, mouse_button
+
+    if event == cv2.EVENT_LBUTTONDOWN:
+        mouse_x, mouse_y = x, y
+        mouse_clicked = True
+        mouse_button = "left"
+        show_coordinates = True
+    elif event == cv2.EVENT_MBUTTONDOWN:
+        mouse_x, mouse_y = x, y
+        mouse_clicked = True
+        mouse_button = "middle"
+        show_coordinates = True
+    elif event == cv2.EVENT_RBUTTONDOWN:
+        mouse_x, mouse_y = x, y
+        mouse_clicked = True
+        mouse_button = "right"
+        show_coordinates = True
+
+def draw_info_panel(frame, x, y, info_lines, title="Info"):
+    """Draw an information panel at specified position"""
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 0.5
+    thickness = 1
+    padding = 10
+    line_height = 20
+
+    max_width = 0
+    for line in info_lines:
+        (w, h), _ = cv2.getTextSize(line, font, font_scale, thickness)
+        max_width = max(max_width, w)
+
+    panel_width = max_width + 2 * padding
+    panel_height = len(info_lines) * line_height + 2 * padding + 25
+
+    # Adjust position if panel goes off screen
+    if x + panel_width > frame.shape[1]:
+        x = frame.shape[1] - panel_width - 10
+    if y + panel_height > frame.shape[0]:
+        y = frame.shape[0] - panel_height - 10
+
+    # Draw semi-transparent background
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (x, y), (x + panel_width, y + panel_height), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
+
+    # Draw border
+    cv2.rectangle(frame, (x, y), (x + panel_width, y + panel_height), (0, 255, 255), 2)
+
+    # Draw title
+    cv2.rectangle(frame, (x, y), (x + panel_width, y + 25), (0, 255, 255), -1)
+    cv2.putText(frame, title, (x + padding, y + 18), font, 0.6, (0, 0, 0), 2, cv2.LINE_AA)
+
+    # Draw info lines
+    y_offset = y + 40
+    for line in info_lines:
+        cv2.putText(frame, line, (x + padding, y_offset), font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+        y_offset += line_height
+
+    return frame
+
+def point_in_polygon(point, polygon):
+    """Check if a point is inside a polygon"""
+    return cv2.pointPolygonTest(polygon, point, False) >= 0
+
+class RobotKeyboardDetection:
+    """Robot control with keyboard while showing YOLO detection."""
+
+    def __init__(self, config_path="config.json"):
+        """Initialize robot and camera."""
+        self.config = self.load_config(config_path)
+        self.robot_ip = self.config.get("robot_ip", "192.168.1.151")
+        self._arm = None
+
+        # Movement parameters
+        self.tcp_speed = self.config.get("tcp_speed", 200)
+        self.tcp_acc = self.config.get("tcp_acc", 2000)
+        self.angle_speed = self.config.get("angle_speed", 20)
+        self.angle_acc = self.config.get("angle_acc", 500)
+
+        # Load offsets from config
+        click_config = self.config.get("click_control", {})
+        self.offset_x = click_config.get("coordinate_offset_x", 0)
+        self.offset_y = click_config.get("coordinate_offset_y", -150)
+
+        # Movement step sizes (mm)
+        self.step_size = 10
+        self.fine_step = 1
+        self.large_step = 50
+
+        # Current position
+        self.current_x = None
+        self.current_y = None
+        self.current_z = None
+
+        # Home position
+        self.home_position = [1.5, 6.3, 45.5, -0.4, 41.0, -7.0]
+
+        # Camera
+        self.camera = None
+        self.camera_system = None
+        self.H = None
+        self.H_inv = None
+        
+        # Inspection mode
+        self.show_inspection = False
+        self.inspection_camera = None
+
+        self.connect_robot()
+        self.initialize_robot()
+        self.initialize_camera()
+
+    def load_config(self, path="config.json"):
+        """Load configuration."""
+        try:
+            if not os.path.isabs(path):
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+                path = os.path.join(base_dir, path)
+            with open(path, "r") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"[Config] Failed to load: {e}")
+            return {
+                "robot_ip": "192.168.1.151",
+                "tcp_speed": 200,
+                "tcp_acc": 2000,
+                "click_control": {
+                    "coordinate_offset_x": 0,
+                    "coordinate_offset_y": -150
+                }
+            }
+
+    def connect_robot(self):
+        """Connect to robot."""
+        while True:
+            try:
+                print(f"[Robot] Connecting to {self.robot_ip}...")
+                self._arm = XArmAPI(self.robot_ip, baud_checkset=False)
+                print("[Robot] ✅ Connected")
+                break
+            except Exception as e:
+                print(f"[Robot] Connection failed: {e}. Retrying in 5s...")
+                time.sleep(5)
+
+    def initialize_robot(self):
+        """Initialize robot."""
+        try:
+            print("[Robot] Initializing...")
+            self._arm.clean_warn()
+            self._arm.clean_error()
+            self._arm.motion_enable(True)
+            self._arm.set_mode(0)
+            self._arm.set_state(0)
+            time.sleep(0.5)
+            self.update_current_position()
+            print("[Robot] ✅ Ready")
+        except Exception as e:
+            print(f"[Robot] Initialization error: {e}")
+
+    def initialize_camera(self):
+        """Initialize camera and load homography."""
+        try:
+            print("[Camera] Initializing...")
+            self.camera_system = PySpin.System.GetInstance()
+            cam_list = self.camera_system.GetCameras()
+
+            if cam_list.GetSize() == 0:
+                print("[Camera] ❌ No camera found")
+                return False
+
+            self.camera = cam_list.GetByIndex(0)
+            self.camera.Init()
+            self.camera.BeginAcquisition()
+
+            # Load homography - get script directory first
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            
+            for filename in ["homography_auto.pkl", "homography_calibration.pkl"]:
+                full_path = os.path.join(script_dir, filename)
+                if os.path.exists(full_path):
+                    with open(full_path, "rb") as f:
+                        self.H = pickle.load(f)
+                    self.H_inv = np.linalg.inv(self.H)
+                    print(f"[Homography] ✅ Loaded {filename}")
+                    print(f"[Homography] File: {full_path}")
+                    return True
+
+            print("[Homography] ⚠️  No homography found - will show pixel coordinates only")
+            return True
+        except Exception as e:
+            print(f"[Camera] Error: {e}")
+            return False
+
+    def initialize_inspection_camera(self):
+        """Initialize inspection camera."""
+        try:
+            print("[Inspection Camera] Initializing...")
+            if self.camera_system is None:
+                self.camera_system = PySpin.System.GetInstance()
+            
+            cam_list = self.camera_system.GetCameras()
+            if cam_list.GetSize() < 2:
+                print("[Inspection Camera] ❌ Second camera not found")
+                return False
+
+            self.inspection_camera = cam_list.GetByIndex(1)
+            self.inspection_camera.Init()
+            self.inspection_camera.BeginAcquisition()
+            print("[Inspection Camera] ✅ Ready")
+            return True
+        except Exception as e:
+            print(f"[Inspection Camera] Error: {e}")
+            return False
+
+    def update_current_position(self):
+        """Get current robot position."""
+        try:
+            code, pos = self._arm.get_position()
+            if code == 0:
+                self.current_x = pos[0]
+                self.current_y = pos[1]
+                self.current_z = pos[2]
+        except Exception as e:
+            print(f"[ERROR] Failed to get position: {e}")
+
+    def move_relative(self, dx=0, dy=0, dz=0):
+        """Move robot relative to current position."""
+        if self.current_x is None:
+            self.update_current_position()
+
+        new_x = self.current_x + dx
+        new_y = self.current_y + dy
+        new_z = self.current_z + dz
+
+        return self.move_to_position(new_x, new_y, new_z)
+
+    def move_to_position(self, x, y, z):
+        """Move robot to position."""
+        try:
+            code, current_pos = self._arm.get_position()
+            if code == 0:
+                roll, pitch, yaw = current_pos[3], current_pos[4], current_pos[5]
+            else:
+                roll, pitch, yaw = 180, 0, 0
+
+            code = self._arm.set_position(
+                x, y, z, roll, pitch, yaw,
+                speed=self.tcp_speed,
+                mvacc=self.tcp_acc,
+                radius=0,
+                wait=True
+            )
+
+            if code == 0:
+                self.current_x = x
+                self.current_y = y
+                self.current_z = z
+                return True
+            return False
+        except Exception as e:
+            print(f"[MOVE] Error: {e}")
+            return False
+
+    def go_home(self):
+        """Go to home position."""
+        print("[Robot] Going home...")
+        try:
+            code = self._arm.set_servo_angle(
+                angle=self.home_position,
+                speed=self.angle_speed,
+                mvacc=self.angle_acc,
+                wait=True
+            )
+            if code == 0:
+                self.update_current_position()
+                print("[Robot] ✅ Home")
+                return True
+        except Exception as e:
+            print(f"[Robot] Error: {e}")
+        return False
+
+    def get_camera_frame(self):
+        """Get camera frame."""
+        if self.camera is None:
+            return None
+        try:
+            image = self.camera.GetNextImage()
+            if image.IsIncomplete():
+                image.Release()
+                return None
+
+            img_array = image.GetNDArray()
+            image.Release()
+
+            if len(img_array.shape) == 2:
+                return cv2.cvtColor(img_array, cv2.COLOR_GRAY2BGR)
+            return img_array
+        except:
+            return None
+
+    def get_inspection_camera_frame(self):
+        """Get inspection camera frame."""
+        if self.inspection_camera is None:
+            return None
+        try:
+            image = self.inspection_camera.GetNextImage()
+            if image.IsIncomplete():
+                image.Release()
+                return None
+
+            img_array = image.GetNDArray()
+            image.Release()
+
+            if len(img_array.shape) == 2:
+                return cv2.cvtColor(img_array, cv2.COLOR_GRAY2BGR)
+            return img_array
+        except:
+            return None
+
+    def transform_points(self, points, H):
+        """Transform points using homography."""
+        pts = np.array(points, dtype=np.float32).reshape(-1, 1, 2)
+        warped = cv2.perspectiveTransform(pts, H)
+        return warped.reshape(-1, 2)
+
+    def is_inside_box(self, pts, width=300, height=300):
+        """Check if points inside workspace."""
+        x, y = pts[:, 0], pts[:, 1]
+        return np.all((x >= 0) & (x <= width) & (y >= 0) & (y <= height))
+
+    def get_angle(self, obb_pts):
+        """Get angle from OBB points."""
+        v1 = obb_pts[1] - obb_pts[0]
+        v2 = obb_pts[2] - obb_pts[1]
+        len1 = np.linalg.norm(v1)
+        len2 = np.linalg.norm(v2)
+        long_vec = v1 if len1 >= len2 else v2
+        angle_rad = np.arctan2(long_vec[1], long_vec[0])
+        angle_deg = np.degrees(angle_rad)
+        if angle_deg < 0:
+            angle_deg += 180
+        return angle_deg
+
+    def draw_workspace_box(self, frame):
+        """Draw workspace boundary."""
+        if self.H_inv is None:
+            return
+
+        box_real = np.array([
+            [0, 0],
+            [300, 0],
+            [300, 300],
+            [0, 300]
+        ], dtype=np.float32).reshape(-1, 1, 2)
+        box_img = cv2.perspectiveTransform(box_real, self.H_inv).reshape(-1, 2).astype(int)
+        cv2.polylines(frame, [box_img], isClosed=True, color=(0, 0, 0), thickness=2)
+
+    def draw_robot_position(self, frame):
+        """Draw robot position on frame."""
+        if self.H_inv is None or self.current_x is None:
+            return
+
+        # Transform robot position to camera coordinates
+        camera_x = self.current_x - self.offset_x
+        camera_y = self.current_y - self.offset_y
+
+        # Transform to pixel coordinates
+        pos_real = np.array([[camera_x, camera_y]], dtype=np.float32).reshape(-1, 1, 2)
+        pos_img = cv2.perspectiveTransform(pos_real, self.H_inv).reshape(-1, 2).astype(int)
+        pos_pt = tuple(pos_img[0])
+
+        # Draw robot position
+        cv2.circle(frame, pos_pt, 12, (0, 255, 0), 3)
+        cv2.circle(frame, pos_pt, 6, (0, 255, 0), -1)
+        cv2.drawMarker(frame, pos_pt, (255, 255, 255), cv2.MARKER_CROSS, 20, 2)
+
+        # Label
+        cv2.putText(frame, "ROBOT", (pos_pt[0] + 18, pos_pt[1] - 10),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+
+    def run(self):
+        """Main loop with keyboard control and YOLO detection."""
+        global mouse_clicked, mouse_x, mouse_y, selected_object, show_coordinates
+
+        print("\n" + "="*70)
+        print("ROBOT KEYBOARD CONTROL WITH YOLO DETECTION")
+        print("="*70)
+        print("KEYBOARD CONTROLS:")
+        print("  ↑↓←→   : Move robot (arrow keys)")
+        print("  [ ]    : Move Z up/down")
+        print("  1/2/3  : Step size (1mm/10mm/50mm)")
+        print("  h      : Home position")
+        print("  p      : Print position")
+        print("  i      : Toggle inspection camera view")
+        print("  s      : STOP robot (emergency stop)")
+        print("  q/ESC  : Quit (robot stays powered)")
+        print("\nMOUSE CONTROLS:")
+        print("  Click  : Show coordinates (pixel + mm)")
+        print("="*70 + "\n")
+
+        window_name = "Robot Control with Detection"
+        
+        # Configure window size and position
+        window_config = self.config.get("window_config", {})
+        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+        cv2.resizeWindow(window_name, 1440, 1080)
+        cv2.moveWindow(window_name, 0, 0)
+        
+        cv2.setMouseCallback(window_name, mouse_callback)
+
+        # Try to use keyboard input
+        try:
+            import msvcrt  # Windows
+            def get_key():
+                if msvcrt.kbhit():
+                    key = msvcrt.getch()
+                    if key == b'\xe0':  # Arrow key prefix
+                        key = msvcrt.getch()
+                        arrow_map = {b'H': 'up', b'P': 'down', b'K': 'left', b'M': 'right'}
+                        return arrow_map.get(key, '')
+                    elif key == b'\x1b':
+                        return 'esc'
+                    return key.decode('utf-8', errors='ignore')
+                return None
+        except ImportError:
+            import tty
+            import termios
+            def get_key():
+                fd = sys.stdin.fileno()
+                old_settings = termios.tcgetattr(fd)
+                try:
+                    tty.setraw(fd)
+                    ch = sys.stdin.read(1)
+                    if ch == '\x1b':
+                        ch2 = sys.stdin.read(1)
+                        if ch2 == '[':
+                            ch3 = sys.stdin.read(1)
+                            arrow_map = {'A': 'up', 'B': 'down', 'C': 'right', 'D': 'left'}
+                            return arrow_map.get(ch3, '')
+                        return 'esc'
+                    return ch
+                finally:
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+                return None
+
+        print("[INFO] Keyboard control active")
+        print(f"[INFO] Step size: {self.step_size}mm\n")
+
+        try:
+            while True:
+                # Get camera frame
+                frame = self.get_camera_frame()
+                if frame is None:
+                    continue
+
+                # If inspection mode is ON, get inspection frame and stack vertically
+                if self.show_inspection:
+                    inspection_frame = self.get_inspection_camera_frame()
+                    if inspection_frame is not None:
+                        # Make sure both frames have the same width
+                        if frame.shape[1] != inspection_frame.shape[1]:
+                            # Resize inspection frame to match detection frame width
+                            inspection_frame = cv2.resize(inspection_frame, (frame.shape[1], inspection_frame.shape[0]))
+                        
+                        # Stack vertically: detection on top, inspection on bottom
+                        frame = np.vstack([frame, inspection_frame])
+
+                # Run YOLO detection
+                results = model(frame, conf=0.7)
+                obb_preds = results[0].obb
+
+                annotated_frame = frame.copy()
+
+                # Store object data for mouse interaction
+                object_data_list = []
+
+                # Draw detected objects
+                for i, obb in enumerate(obb_preds, 1):
+                    if hasattr(obb, "xyxyxyxy"):
+                        corners = obb.xyxyxyxy.cpu().numpy().reshape(-1, 2)
+                    elif hasattr(obb, "xyxy"):
+                        corners = obb.xyxy.cpu().numpy().reshape(-1, 2)
+                    else:
+                        continue
+
+                    # Check if inside workspace
+                    if self.H is not None:
+                        transformed = self.transform_points(corners, self.H)
+                        is_inside = self.is_inside_box(transformed)
+
+                        if is_inside:
+                            color = (0, 255, 0)  # Green
+
+                            # Calculate object properties
+                            center = np.mean(transformed, axis=0)
+                            angle = self.get_angle(transformed)
+
+                            side1 = np.linalg.norm(transformed[1] - transformed[0])
+                            side2 = np.linalg.norm(transformed[2] - transformed[1])
+                            width_mm = round(max(side1, side2), 1)
+                            height_mm = round(min(side1, side2), 1)
+
+                            x_mm, y_mm = round(center[0], 1), round(center[1], 1)
+                            angle_deg = round(angle, 2)
+
+                            # Store object data for click detection
+                            object_data_list.append({
+                                'id': i,
+                                'corners': corners.astype(int),
+                                'x_mm': x_mm,
+                                'y_mm': y_mm,
+                                'angle': angle_deg,
+                                'width': width_mm,
+                                'height': height_mm
+                            })
+
+                            # Draw center point
+                            center_img = np.mean(corners, axis=0).astype(int)
+                            cv2.circle(annotated_frame, tuple(center_img), 5, (0, 0, 255), -1)
+                            cv2.circle(annotated_frame, tuple(center_img), 5, (255, 255, 255), 1)
+                            cv2.drawMarker(annotated_frame, tuple(center_img), (255, 255, 255), cv2.MARKER_CROSS, 10, 1)
+                        else:
+                            color = (0, 0, 255)  # Red
+                    else:
+                        color = (128, 128, 128)  # Gray (no homography)
+
+                    # Draw border
+                    corners_int = corners.astype(int)
+                    cv2.polylines(annotated_frame, [corners_int], isClosed=True, color=color, thickness=2)
+
+                    # Label
+                    label_pos = tuple(corners_int[0] - [0, 10])
+                    cv2.putText(annotated_frame, f"Obj {i}", label_pos,
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+                # Handle mouse click
+                if mouse_clicked:
+                    mouse_clicked = False
+
+                    # Convert click position to real-world coordinates if homography available
+                    if self.H is not None:
+                        click_pt = np.array([[mouse_x, mouse_y]], dtype=np.float32).reshape(-1, 1, 2)
+                        real_coord = cv2.perspectiveTransform(click_pt, self.H).reshape(-1, 2)
+                        click_x_mm = real_coord[0][0]
+                        click_y_mm = real_coord[0][1]
+                    else:
+                        click_x_mm = mouse_x
+                        click_y_mm = mouse_y
+
+                    # Check if clicked on any object
+                    clicked_on_object = False
+                    for obj_data in object_data_list:
+                        if point_in_polygon((mouse_x, mouse_y), obj_data['corners']):
+                            selected_object = obj_data
+                            show_coordinates = True
+                            clicked_on_object = True
+                            if self.H is not None:
+                                print(f"[CLICK] Object {obj_data['id']}: ({obj_data['x_mm']:.1f}, {obj_data['y_mm']:.1f}) mm")
+                            else:
+                                print(f"[CLICK] Object {obj_data['id']}: Pixel ({mouse_x}, {mouse_y})")
+                            break
+
+                    # If clicked on empty space, show clicked position
+                    if not clicked_on_object:
+                        selected_object = None
+                        show_coordinates = True
+                        if self.H is not None:
+                            in_workspace = (0 <= click_x_mm <= 300 and 0 <= click_y_mm <= 300)
+                            status = "inside workspace" if in_workspace else "outside workspace"
+                            print(f"[CLICK] Coordinates: ({click_x_mm:.1f}, {click_y_mm:.1f}) mm - {status}")
+                        else:
+                            print(f"[CLICK] Pixel: ({mouse_x}, {mouse_y})")
+
+                # Draw info panel if showing coordinates
+                if show_coordinates:
+                    if selected_object:
+                        # Show object info
+                        info_lines = [
+                            f"Object ID: {selected_object['id']}",
+                            f"Pixel: ({mouse_x}, {mouse_y})"
+                        ]
+                        
+                        if self.H is not None:
+                            info_lines.extend([
+                                f"Position: ({selected_object['x_mm']:.1f}, {selected_object['y_mm']:.1f}) mm",
+                                f"Angle: {selected_object['angle']:.1f} degrees",
+                                f"Width: {selected_object['width']:.1f} mm",
+                                f"Height: {selected_object['height']:.1f} mm"
+                            ])
+
+                        # Draw info panel
+                        draw_info_panel(annotated_frame, mouse_x + 10, mouse_y + 10, info_lines, f"Object {selected_object['id']}")
+
+                        # Highlight selected object
+                        cv2.polylines(annotated_frame, [selected_object['corners']], isClosed=True, color=(0, 255, 255), thickness=3)
+                    else:
+                        # Show coordinate info at clicked position
+                        info_lines = [f"Pixel: ({mouse_x}, {mouse_y})"]
+                        
+                        if self.H is not None:
+                            click_pt = np.array([[mouse_x, mouse_y]], dtype=np.float32).reshape(-1, 1, 2)
+                            real_coord = cv2.perspectiveTransform(click_pt, self.H).reshape(-1, 2)
+                            info_lines.append(f"Real: ({real_coord[0][0]:.1f}, {real_coord[0][1]:.1f}) mm")
+                            
+                            in_workspace = (0 <= real_coord[0][0] <= 300 and 0 <= real_coord[0][1] <= 300)
+                            info_lines.append(f"In workspace: {'Yes' if in_workspace else 'No'}")
+
+                        draw_info_panel(annotated_frame, mouse_x + 10, mouse_y + 10, info_lines, "Coordinates")
+
+                        # Draw crosshair at clicked position
+                        cv2.drawMarker(annotated_frame, (mouse_x, mouse_y), (0, 255, 255), cv2.MARKER_CROSS, 20, 2)
+
+                # Draw workspace boundary
+                self.draw_workspace_box(annotated_frame)
+
+                # Draw robot position
+                self.draw_robot_position(annotated_frame)
+
+                # Draw info overlay
+                cv2.putText(annotated_frame, "Robot Keyboard Control + Detection", (10, 30),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+
+                if self.current_x is not None:
+                    camera_x = self.current_x - self.offset_x
+                    camera_y = self.current_y - self.offset_y
+                    cv2.putText(annotated_frame, f"Robot: ({camera_x:.1f}, {camera_y:.1f}) mm", (10, 65),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+
+                cv2.putText(annotated_frame, f"Step: {self.step_size}mm", (10, 95),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+
+                # Show frame
+                cv2.imshow(window_name, annotated_frame)
+
+                # Handle keyboard input
+                key = get_key()
+
+                if key == 'up':
+                    print(f"↑ Moving UP ({self.step_size}mm)")
+                    self.move_relative(dx=self.step_size)
+                    self.update_current_position()
+
+                elif key == 'down':
+                    print(f"↓ Moving DOWN ({self.step_size}mm)")
+                    self.move_relative(dx=-self.step_size)
+                    self.update_current_position()
+
+                elif key == 'left':
+                    print(f"← Moving LEFT ({self.step_size}mm)")
+                    self.move_relative(dy=self.step_size)
+                    self.update_current_position()
+
+                elif key == 'right':
+                    print(f"→ Moving RIGHT ({self.step_size}mm)")
+                    self.move_relative(dy=-self.step_size)
+                    self.update_current_position()
+
+                elif key in ['[', '5']:
+                    print(f"↑ Moving Z+ ({self.step_size}mm)")
+                    self.move_relative(dz=self.step_size)
+                    self.update_current_position()
+
+                elif key in [']', '6']:
+                    print(f"↓ Moving Z- ({self.step_size}mm)")
+                    self.move_relative(dz=-self.step_size)
+                    self.update_current_position()
+
+                elif key == '1':
+                    self.step_size = self.fine_step
+                    print(f"[STEP] Fine: {self.step_size}mm")
+
+                elif key == '2':
+                    self.step_size = 10
+                    print(f"[STEP] Normal: {self.step_size}mm")
+
+                elif key == '3':
+                    self.step_size = self.large_step
+                    print(f"[STEP] Large: {self.step_size}mm")
+
+                elif key and key.lower() == 'h':
+                    self.go_home()
+                    self.update_current_position()
+
+                elif key and key.lower() == 'p':
+                    self.update_current_position()
+                    if self.current_x is not None:
+                        camera_x = self.current_x - self.offset_x
+                        camera_y = self.current_y - self.offset_y
+                        print(f"\n[POSITION]")
+                        print(f"  Robot:  ({self.current_x:.1f}, {self.current_y:.1f}, {self.current_z:.1f}) mm")
+                        print(f"  Camera: ({camera_x:.1f}, {camera_y:.1f}) mm\n")
+
+                elif key and key.lower() == 'i':
+                    self.show_inspection = not self.show_inspection
+                    
+                    # Initialize inspection camera on first use
+                    if self.show_inspection and self.inspection_camera is None:
+                        if not self.initialize_inspection_camera():
+                            print("[ERROR] Failed to initialize inspection camera")
+                            self.show_inspection = False
+                    
+                    status = "ON" if self.show_inspection else "OFF"
+                    print(f"[INFO] Inspection camera: {status}")
+
+                elif key and key.lower() == 's':
+                    self.stop_robot()
+                    self.update_current_position()
+
+                elif key in ['q', 'esc'] or (cv2.waitKey(1) & 0xFF == ord('q')):
+                    print("\n[INFO] Quitting... (Robot will remain powered)")
+                    break
+
+                time.sleep(0.05)
+
+        except KeyboardInterrupt:
+            print("\n\n[INFO] Interrupted")
+
+        finally:
+            self.shutdown()
+
+    def stop_robot(self):
+        """Emergency stop - halt all robot motion."""
+        try:
+            print("\n[STOP] Emergency stop activated!")
+            self._arm.set_state(4)  # Stop state
+            time.sleep(0.1)
+            self._arm.set_state(0)  # Back to ready
+            print("[STOP] ✅ Robot stopped and ready")
+            return True
+        except Exception as e:
+            print(f"[STOP] Error: {e}")
+            return False
+
+    def shutdown(self):
+        """Cleanup camera and windows only. Does NOT stop or kill robot processes."""
+        print("\n[Shutdown] Cleaning up camera and windows...")
+        print("[Shutdown] Note: Robot remains active and powered")
+
+        if self.camera is not None:
+            try:
+                self.camera.EndAcquisition()
+                self.camera.DeInit()
+            except:
+                pass
+
+        if self.camera_system is not None:
+            try:
+                cam_list = self.camera_system.GetCameras()
+                cam_list.Clear()
+                self.camera_system.ReleaseInstance()
+            except:
+                pass
+
+        cv2.destroyAllWindows()
+        print("[Shutdown] ✅ Complete\n")
+
+
+if __name__ == "__main__":
+    app = RobotKeyboardDetection()
+    app.run()
