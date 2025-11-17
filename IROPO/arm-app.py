@@ -1,5 +1,5 @@
 """
-Robot Vision System - Setup & Monitoring GUI
+Intelligent Robot Positioning GUI
 PyQt6 application for calibration, dual camera visualization, and system monitoring
 Communicates with xarm-motion via shared memory
 """
@@ -23,13 +23,47 @@ from ultralytics import YOLO
 import PySpin
 
 
+class ClickableLabel(QLabel):
+    """Custom QLabel that emits click signals with scaled coordinates"""
+    clicked = pyqtSignal(int, int)  # Signal emits x, y in original image coordinates
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.original_image_size = None  # Store original image size for coordinate scaling
+        self.displayed_image_size = None  # Store displayed (scaled) image size
+        
+    def mousePressEvent(self, event):
+        """Handle mouse press events and emit scaled coordinates"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            # Get click position in widget coordinates
+            click_pos = event.pos()
+            widget_x = click_pos.x()
+            widget_y = click_pos.y()
+            
+            # Scale coordinates to match original image size
+            if self.original_image_size and self.displayed_image_size:
+                # Calculate scaling factors
+                scale_x = self.original_image_size[0] / self.displayed_image_size[0]
+                scale_y = self.original_image_size[1] / self.displayed_image_size[1]
+                
+                # Scale click coordinates
+                img_x = int(widget_x * scale_x)
+                img_y = int(widget_y * scale_y)
+                
+                # Emit signal with scaled coordinates
+                self.clicked.emit(img_x, img_y)
+            else:
+                # No scaling info, emit raw coordinates
+                self.clicked.emit(widget_x, widget_y)
+
+
 class RobotVisionGUI(QMainWindow):
     """Main GUI application for robot vision system"""
     
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Robot Vision System - Setup & Monitoring")
-        self.setGeometry(100, 100, 1400, 900)
+        self.setWindowTitle("Intelligent Robot Positioning")
+        self.setGeometry(100, 100, 900, 850)  # Horizontal layout: wide for 2 cameras side-by-side
         
         # Load configuration
         self.config = self.load_config()
@@ -41,6 +75,13 @@ class RobotVisionGUI(QMainWindow):
         self.H_camera_to_workspace = None  # Camera → Workspace transformation
         self.H_workspace_to_robot = None   # Workspace → Robot transformation
         self.system_running = False
+        
+        # Object detection tracking
+        self.detected_objects = []  # List of detected objects with their data
+        self.selected_object = None  # Currently selected object
+        self.mouse_click_x = 0  # Mouse click position in image coordinates
+        self.mouse_click_y = 0
+        self.show_info_panel = False  # Whether to show info panel
         
         # Shared memory
         self.click_shm = None
@@ -127,11 +168,11 @@ class RobotVisionGUI(QMainWindow):
         detection_layout.addWidget(auto_cal_btn)
         
         # Manual calibration option
-        manual_detection_label = QLabel("Manual Backup (4 corners in pixels → workspace mm):")
+        manual_detection_label = QLabel("Manual Calibration (4 corners in pixels → workspace mm):")
         detection_layout.addWidget(manual_detection_label)
         
         self.detection_cal_inputs = {}
-        corners = ['BL', 'BR', 'TR', 'TL']
+        corners = ['Bottom Left', 'Bottom Right', 'Top Right', 'Top Left']
         for corner in corners:
             h_layout = QHBoxLayout()
             h_layout.addWidget(QLabel(f"{corner}:"))
@@ -155,7 +196,7 @@ class RobotVisionGUI(QMainWindow):
                 'mm_x': mm_x, 'mm_y': mm_y
             }
         
-        manual_detection_btn = QPushButton("Apply Manual Detection Calibration")
+        manual_detection_btn = QPushButton("Manual Detection Calibration")
         manual_detection_btn.clicked.connect(self.apply_manual_detection_calibration)
         detection_layout.addWidget(manual_detection_btn)
         
@@ -167,17 +208,17 @@ class RobotVisionGUI(QMainWindow):
         robot_layout = QVBoxLayout()
         
         # Auto mode (2 points)
-        auto_robot_label = QLabel("Auto Mode - Enter 2 corners (BL and TR):")
+        auto_robot_label = QLabel("Auto Mode - Enter 2 corners (Bottom Left and Top Right):")
         robot_layout.addWidget(auto_robot_label)
         
-        self.robot_auto_mode = QCheckBox("Use Auto Calculation (enter only BL and TR)")
+        self.robot_auto_mode = QCheckBox("Use Auto Calculation (enter only Bottom Left and Top Right)")
         self.robot_auto_mode.setChecked(True)
         self.robot_auto_mode.stateChanged.connect(self.toggle_robot_calibration_mode)
         robot_layout.addWidget(self.robot_auto_mode)
         
         # Input fields for robot calibration
         self.robot_cal_inputs = {}
-        robot_corners = ['BL', 'BR', 'TR', 'TL']
+        robot_corners = ['Bottom Left', 'Bottom Right', 'Top Right', 'Top Left']
         
         for corner in robot_corners:
             h_layout = QHBoxLayout()
@@ -206,17 +247,21 @@ class RobotVisionGUI(QMainWindow):
             }
             
             # Disable BR and TL in auto mode initially
-            if corner in ['BR', 'TL']:
+            if corner in ['Bottom Right', 'Top Left']:
                 ws_x.setEnabled(False)
                 ws_y.setEnabled(False)
                 robot_x.setEnabled(False)
                 robot_y.setEnabled(False)
         
         # Pre-fill workspace coordinates
-        self.robot_cal_inputs['BL']['ws_x'].setText("0")
-        self.robot_cal_inputs['BL']['ws_y'].setText("0")
-        self.robot_cal_inputs['TR']['ws_x'].setText("300")
-        self.robot_cal_inputs['TR']['ws_y'].setText("300")
+        self.robot_cal_inputs['Bottom Left']['ws_x'].setText("0")
+        self.robot_cal_inputs['Bottom Left']['ws_y'].setText("0")
+        self.robot_cal_inputs['Bottom Right']['ws_x'].setText("300")
+        self.robot_cal_inputs['Bottom Right']['ws_y'].setText("0")
+        self.robot_cal_inputs['Top Left']['ws_x'].setText("0")
+        self.robot_cal_inputs['Top Left']['ws_y'].setText("300")
+        self.robot_cal_inputs['Top Right']['ws_x'].setText("300")
+        self.robot_cal_inputs['Top Right']['ws_y'].setText("300")
         
         calculate_btn = QPushButton("Calculate Robot Transformation")
         calculate_btn.clicked.connect(self.calculate_robot_transformation)
@@ -233,26 +278,50 @@ class RobotVisionGUI(QMainWindow):
     def create_live_view_tab(self):
         """Create live camera view tab"""
         widget = QWidget()
-        layout = QVBoxLayout(widget)
+        main_layout = QVBoxLayout(widget)
         
-        # Camera display labels
-        self.detection_label = QLabel("Detection Camera")
-        self.detection_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.detection_label.setMinimumSize(800, 600)
+        # Create horizontal layout for side-by-side cameras
+        camera_layout = QHBoxLayout()
+        
+        # Detection camera (left side)
+        detection_container = QVBoxLayout()
+        detection_title = QLabel("Detection Camera")
+        # detection_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        detection_title.setStyleSheet("font-weight: bold; font-size: 14px;")
+        detection_container.addWidget(detection_title)
+        
+        self.detection_label = ClickableLabel()  # Use ClickableLabel for click detection
+        # self.detection_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.detection_label.setMinimumSize(640, 480)  # Fixed size from config
         self.detection_label.setStyleSheet("border: 2px solid black; background-color: #2b2b2b;")
-        layout.addWidget(self.detection_label)
+        self.detection_label.clicked.connect(self.on_detection_click)  # Connect click handler
+        detection_container.addWidget(self.detection_label)
         
-        self.inspection_label = QLabel("Inspection Camera")
-        self.inspection_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.inspection_label.setMinimumSize(800, 600)
+        # Inspection camera (right side)
+        inspection_container = QVBoxLayout()
+        inspection_title = QLabel("Inspection Camera")
+        # inspection_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        inspection_title.setStyleSheet("font-weight: bold; font-size: 14px;")
+        inspection_container.addWidget(inspection_title)
+        
+        self.inspection_label = QLabel()
+        # self.inspection_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.inspection_label.setMinimumSize(640, 480)  # Fixed size from config
         self.inspection_label.setStyleSheet("border: 2px solid black; background-color: #2b2b2b;")
-        layout.addWidget(self.inspection_label)
+        inspection_container.addWidget(self.inspection_label)
         
-        # Detection info display
+        # Add both cameras to horizontal layout
+        camera_layout.addLayout(detection_container)
+        camera_layout.addLayout(inspection_container)
+        
+        # Add camera layout to main layout
+        main_layout.addLayout(camera_layout)
+        
+        # Detection info display at bottom
         self.detection_info = QTextEdit()
         self.detection_info.setReadOnly(True)
         self.detection_info.setMaximumHeight(100)
-        layout.addWidget(self.detection_info)
+        main_layout.addWidget(self.detection_info)
         
         return widget
     
@@ -293,7 +362,7 @@ class RobotVisionGUI(QMainWindow):
         auto_mode = (state == Qt.CheckState.Checked.value)
         
         # Enable/disable BR and TL inputs
-        for corner in ['BR', 'TL']:
+        for corner in ['Bottom Right', 'Top Left']:
             for key in ['ws_x', 'ws_y', 'robot_x', 'robot_y']:
                 self.robot_cal_inputs[corner][key].setEnabled(not auto_mode)
     
@@ -391,7 +460,7 @@ class RobotVisionGUI(QMainWindow):
             image_points = []
             real_points = []
             
-            corners = ['BL', 'BR', 'TR', 'TL']
+            corners = ['Bottom Left', 'Bottom Right', 'Top Right', 'Top Left']
             for corner in corners:
                 inputs = self.detection_cal_inputs[corner]
                 
@@ -441,7 +510,7 @@ class RobotVisionGUI(QMainWindow):
             
             if auto_mode:
                 # Get BL and TR only
-                corners_to_use = ['BL', 'TR']
+                corners_to_use = ['Bottom Left', 'Top Right']
                 
                 for corner in corners_to_use:
                     inputs = self.robot_cal_inputs[corner]
@@ -524,14 +593,14 @@ class RobotVisionGUI(QMainWindow):
                 robot_points.append(tl_robot.tolist())
                 
                 # Update display fields
-                self.robot_cal_inputs['BR']['robot_x'].setText(f"{br_robot[0]:.1f}")
-                self.robot_cal_inputs['BR']['robot_y'].setText(f"{br_robot[1]:.1f}")
-                self.robot_cal_inputs['TL']['robot_x'].setText(f"{tl_robot[0]:.1f}")
-                self.robot_cal_inputs['TL']['robot_y'].setText(f"{tl_robot[1]:.1f}")
+                self.robot_cal_inputs['Bottom Right']['robot_x'].setText(f"{br_robot[0]:.1f}")
+                self.robot_cal_inputs['Bottom Right']['robot_y'].setText(f"{br_robot[1]:.1f}")
+                self.robot_cal_inputs['Top Left']['robot_x'].setText(f"{tl_robot[0]:.1f}")
+                self.robot_cal_inputs['Top Left']['robot_y'].setText(f"{tl_robot[1]:.1f}")
                 
             else:
                 # Manual mode - use all 4 points
-                corners = ['BL', 'BR', 'TR', 'TL']
+                corners = ['Bottom Left', 'Bottom Right', 'Top Right', 'Top Left']
                 for corner in corners:
                     inputs = self.robot_cal_inputs[corner]
                     try:
@@ -640,6 +709,35 @@ class RobotVisionGUI(QMainWindow):
         except:
             return None
     
+    def transform_points(self, points, H):
+        """Transform points using homography matrix"""
+        pts = np.array(points, dtype=np.float32).reshape(-1, 1, 2)
+        warped = cv2.perspectiveTransform(pts, H)
+        return warped.reshape(-1, 2)
+    
+    def is_inside_workspace(self, pts, width=None, height=None):
+        """Check if points are inside workspace boundaries"""
+        if width is None:
+            width = self.config.get("workspace", {}).get("width", 300)
+        if height is None:
+            height = self.config.get("workspace", {}).get("height", 300)
+        
+        x, y = pts[:, 0], pts[:, 1]
+        return np.all((x >= 0) & (x <= width) & (y >= 0) & (y <= height))
+    
+    def get_angle(self, obb_pts):
+        """Calculate angle from OBB points"""
+        v1 = obb_pts[1] - obb_pts[0]
+        v2 = obb_pts[2] - obb_pts[1]
+        len1 = np.linalg.norm(v1)
+        len2 = np.linalg.norm(v2)
+        long_vec = v1 if len1 >= len2 else v2
+        angle_rad = np.arctan2(long_vec[1], long_vec[0])
+        angle_deg = np.degrees(angle_rad)
+        if angle_deg < 0:
+            angle_deg += 180
+        return angle_deg
+    
     def update_camera_feeds(self):
         """Update camera display (called by timer)"""
         # Get detection frame
@@ -658,8 +756,11 @@ class RobotVisionGUI(QMainWindow):
             self.display_frame(inspection_frame, self.inspection_label)
     
     def draw_detections(self, frame, results):
-        """Draw YOLO detections on frame"""
+        """Draw YOLO detections on frame with color based on workspace position"""
         annotated = frame.copy()
+        
+        # Clear previous detected objects
+        self.detected_objects = []
         
         # Draw workspace boundary if calibrated
         if self.H_camera_to_workspace is not None:
@@ -667,15 +768,166 @@ class RobotVisionGUI(QMainWindow):
             self.draw_workspace_boundary(annotated, H_inv)
         
         # Draw detection results
-        # (Simplified - you can add your full detection drawing code here)
         obb_preds = results[0].obb
         
-        for obb in obb_preds:
+        for i, obb in enumerate(obb_preds, 1):
             if hasattr(obb, "xyxyxyxy"):
-                corners = obb.xyxyxyxy.cpu().numpy().reshape(-1, 2).astype(int)
-                cv2.polylines(annotated, [corners], isClosed=True, color=(0, 255, 0), thickness=2)
+                corners = obb.xyxyxyxy.cpu().numpy().reshape(-1, 2)
+            elif hasattr(obb, "xyxy"):
+                corners = obb.xyxy.cpu().numpy().reshape(-1, 2)
+            else:
+                continue
+            
+            # Determine color based on workspace position
+            if self.H_camera_to_workspace is not None:
+                # Transform corners to workspace coordinates
+                transformed = self.transform_points(corners, self.H_camera_to_workspace)
+                is_inside = self.is_inside_workspace(transformed)
+                
+                if is_inside:
+                    color = (0, 255, 0)  # Green - inside workspace
+                    
+                    # Calculate object properties
+                    center = np.mean(transformed, axis=0)
+                    angle = self.get_angle(transformed)
+                    
+                    side1 = np.linalg.norm(transformed[1] - transformed[0])
+                    side2 = np.linalg.norm(transformed[2] - transformed[1])
+                    width_mm = round(max(side1, side2), 1)
+                    height_mm = round(min(side1, side2), 1)
+                    
+                    x_mm, y_mm = round(center[0], 1), round(center[1], 1)
+                    angle_deg = round(angle, 2)
+                    
+                    # Store object data for click detection
+                    self.detected_objects.append({
+                        'id': i,
+                        'corners': corners.astype(int),
+                        'x_mm': x_mm,
+                        'y_mm': y_mm,
+                        'angle': angle_deg,
+                        'width': width_mm,
+                        'height': height_mm
+                    })
+                    
+                    # Draw center point
+                    center_img = np.mean(corners, axis=0).astype(int)
+                    cv2.circle(annotated, tuple(center_img), 5, (0, 0, 255), -1)
+                    cv2.circle(annotated, tuple(center_img), 5, (255, 255, 255), 1)
+                    cv2.drawMarker(annotated, tuple(center_img), (255, 255, 255), cv2.MARKER_CROSS, 10, 1)
+                else:
+                    color = (0, 0, 255)  # Red - outside workspace
+            else:
+                color = (128, 128, 128)  # Gray - no calibration
+            
+            # Draw border
+            corners_int = corners.astype(int)
+            cv2.polylines(annotated, [corners_int], isClosed=True, color=color, thickness=2)
+            
+            # Draw object label (like yolo-mouse-v2.py)
+            label_pos = tuple(corners_int[0] - [0, 10])
+            cv2.putText(annotated, f"Object {i}", label_pos,
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2, cv2.LINE_AA)
+        
+        # Draw info panel if object is selected
+        if self.show_info_panel and self.selected_object:
+            # Highlight selected object with cyan border
+            cv2.polylines(annotated, [self.selected_object['corners']], 
+                         isClosed=True, color=(255, 255, 0), thickness=3)
+            
+            # Draw info panel near click position
+            info_lines = [
+                f"Object ID: {self.selected_object['id']}",
+                f"Position: ({self.selected_object['x_mm']:.1f}, {self.selected_object['y_mm']:.1f}) mm",
+                f"Angle: {self.selected_object['angle']:.1f} degrees",
+                f"Width: {self.selected_object['width']:.1f} mm",
+                f"Height: {self.selected_object['height']:.1f} mm"
+            ]
+            
+            annotated = self.draw_info_panel_on_frame(
+                annotated, 
+                self.mouse_click_x + 10, 
+                self.mouse_click_y + 10, 
+                info_lines, 
+                f"Object {self.selected_object['id']}"
+            )
         
         return annotated
+    
+    def point_in_polygon(self, point, polygon):
+        """Check if a point is inside a polygon"""
+        return cv2.pointPolygonTest(polygon, point, False) >= 0
+    
+    def draw_info_panel_on_frame(self, frame, x, y, info_lines, title="Info"):
+        """Draw an information panel at specified position (like yolo-mouse-v2.py)"""
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.5
+        thickness = 1
+        padding = 10
+        line_height = 20
+
+        max_width = 0
+        for line in info_lines:
+            (w, h), _ = cv2.getTextSize(line, font, font_scale, thickness)
+            max_width = max(max_width, w)
+
+        panel_width = max_width + 2 * padding
+        panel_height = len(info_lines) * line_height + 2 * padding + 25
+
+        # Adjust position if panel goes off screen
+        if x + panel_width > frame.shape[1]:
+            x = frame.shape[1] - panel_width - 10
+        if y + panel_height > frame.shape[0]:
+            y = frame.shape[0] - panel_height - 10
+
+        # Draw semi-transparent background
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (x, y), (x + panel_width, y + panel_height), (0, 0, 0), -1)
+        cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
+
+        # Draw border
+        cv2.rectangle(frame, (x, y), (x + panel_width, y + panel_height), (0, 255, 255), 2)
+
+        # Draw title
+        cv2.rectangle(frame, (x, y), (x + panel_width, y + 25), (0, 255, 255), -1)
+        cv2.putText(frame, title, (x + padding, y + 18), font, 0.6, (0, 0, 0), 2, cv2.LINE_AA)
+
+        # Draw info lines
+        y_offset = y + 40
+        for line in info_lines:
+            cv2.putText(frame, line, (x + padding, y_offset), font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+            y_offset += line_height
+
+        return frame
+    
+    def on_detection_click(self, x, y):
+        """Handle click on detection camera - find which object was clicked"""
+        self.mouse_click_x = x
+        self.mouse_click_y = y
+        
+        # Check if clicked on any detected object
+        clicked_on_object = False
+        for obj_data in self.detected_objects:
+            if self.point_in_polygon((x, y), obj_data['corners']):
+                self.selected_object = obj_data
+                self.show_info_panel = True
+                clicked_on_object = True
+                print(f"[GUI CLICK] Object {obj_data['id']}: ({obj_data['x_mm']:.1f}, {obj_data['y_mm']:.1f}) mm")
+                
+                # Update detection info text
+                info_text = f"Selected Object {obj_data['id']}:\n"
+                info_text += f"Position: ({obj_data['x_mm']:.1f}, {obj_data['y_mm']:.1f}) mm\n"
+                info_text += f"Angle: {obj_data['angle']:.1f}°, "
+                info_text += f"Size: {obj_data['width']:.1f}x{obj_data['height']:.1f} mm"
+                self.detection_info.setText(info_text)
+                break
+        
+        # If clicked on empty space
+        if not clicked_on_object:
+            self.selected_object = None
+            self.show_info_panel = False
+            self.detection_info.clear()
+            print(f"[GUI CLICK] Empty space at pixel ({x}, {y})")
     
     def draw_workspace_boundary(self, frame, H_inv):
         """Draw workspace boundary box"""
@@ -697,8 +949,12 @@ class RobotVisionGUI(QMainWindow):
         # Convert to RGB
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         
-        # Resize to fit label
+        # Store original image size for click coordinate scaling
         h, w, ch = rgb_frame.shape
+        if isinstance(label, ClickableLabel):
+            label.original_image_size = (w, h)
+        
+        # Resize to fit label
         label_w = label.width()
         label_h = label.height()
         
@@ -706,6 +962,10 @@ class RobotVisionGUI(QMainWindow):
         scale = min(label_w / w, label_h / h)
         new_w = int(w * scale)
         new_h = int(h * scale)
+        
+        # Store displayed image size for click coordinate scaling
+        if isinstance(label, ClickableLabel):
+            label.displayed_image_size = (new_w, new_h)
         
         resized = cv2.resize(rgb_frame, (new_w, new_h))
         
