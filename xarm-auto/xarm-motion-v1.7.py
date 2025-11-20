@@ -453,7 +453,7 @@ class XArmController:
             print(f"[Pick Logic] Gripper aligns WITH object angle: {gripper_angle:.1f}°")
         else:
             # Height is smaller - gripper should rotate 90° RIGHT (subtract) to grip height
-            gripper_angle = object_angle + 90
+            gripper_angle = object_angle - 90
             # Normalize to -180 to 180 range (robot accepts negative angles)
             if gripper_angle < -180:
                 gripper_angle += 360
