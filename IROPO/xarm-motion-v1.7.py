@@ -431,7 +431,7 @@ class XArmController:
         """
         Calculate the optimal gripper angle for picking based on object dimensions.
 
-        The gripper should align to grip the narrower dimension of the object.
+        The gripper should align to grip the WIDER dimension of the object (open wide).
 
         Args:
             object_angle: Detected object angle in degrees (0-180)
@@ -445,20 +445,20 @@ class XArmController:
             # No dimension data, use object angle directly
             return object_angle
 
-        # Determine which dimension is smaller (should be gripped)
+        # Determine which dimension is LARGER (should be gripped - INVERTED LOGIC)
         if object_width < object_height:
-            # Width is smaller - gripper should align with object angle to grip width
-            gripper_angle = object_angle
-            print(f"[Pick Logic] Width ({object_width:.1f}mm) < Height ({object_height:.1f}mm)")
-            print(f"[Pick Logic] Gripper aligns WITH object angle: {gripper_angle:.1f}°")
-        else:
-            # Height is smaller - gripper should rotate 90° RIGHT (subtract) to grip height
+            # Width is smaller - gripper should rotate 90° RIGHT to grip the WIDER height
             gripper_angle = object_angle - 90
             # Normalize to -180 to 180 range (robot accepts negative angles)
             if gripper_angle < -180:
                 gripper_angle += 360
+            print(f"[Pick Logic] Width ({object_width:.1f}mm) < Height ({object_height:.1f}mm)")
+            print(f"[Pick Logic] Gripper rotates 90° RIGHT to grip WIDE height: {object_angle:.1f}° → {gripper_angle:.1f}°")
+        else:
+            # Height is smaller - gripper should align with object angle to grip the WIDER width
+            gripper_angle = object_angle
             print(f"[Pick Logic] Height ({object_height:.1f}mm) < Width ({object_width:.1f}mm)")
-            print(f"[Pick Logic] Gripper rotates 90° RIGHT from object: {object_angle:.1f}° → {gripper_angle:.1f}°")
+            print(f"[Pick Logic] Gripper aligns WITH object angle to grip WIDE width: {gripper_angle:.1f}°")
 
         return gripper_angle
 
